@@ -76,3 +76,4 @@ endif
 obj-$(CONFIG_CPULOAD_MONITOR)	+= cpuload.o
 obj-$(CONFIG_TEGRA_PROFILER)    += tegra-profiler/
 obj-$(CONFIG_AW8EC)		+= aw8ec.o
+obj-$(CONFIG_UID_CPUTIME) += uid_cputime.o
