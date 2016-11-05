@@ -1948,7 +1948,7 @@ static int usb_enumerate_device(struct usb_device *udev)
 	if (err < 0)
 		return err;
 
-	usb_detect_interface_quirks(udev);
+//	usb_detect_interface_quirks(udev);
 
 	return 0;
 }
