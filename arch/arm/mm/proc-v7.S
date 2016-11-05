@@ -134,7 +134,7 @@ ENDPROC(cpu_v7_dcache_clean_area)
 .equ	cpu_v7_suspend_size, (4 * 17) + cpu_v7_debug_suspend_size
 #ifdef CONFIG_ARM_CPU_SUSPEND
 ENTRY(cpu_v7_do_suspend)
-	stmfd	sp!, {r3 - r10, lr}
+	stmfd	sp!, {r3 - r11, lr}
 	mrc	p15, 0, r4, c13, c0, 0	@ FCSE/PID
 	mrc	p15, 0, r5, c13, c0, 3	@ User r/o thread ID
 	mrc	p15, 0, r6, c15, c0, 1	@ diag
@@ -244,7 +244,7 @@ ENTRY(cpu_v7_do_suspend)
 	save_wpt	c1
 	save_wpt	c0
 #endif
-	ldmfd	sp!, {r3 - r10, pc}
+	ldmfd	sp!, {r3 - r11, pc}
 ENDPROC(cpu_v7_do_suspend)
 
 ENTRY(cpu_v7_do_resume)
