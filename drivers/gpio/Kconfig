@@ -236,6 +236,13 @@ config GPIO_MAX732X_IRQ
 	  Say yes here to enable the max732x to be used as an interrupt
 	  controller. It requires the driver to be built in the kernel.
 
+config GPIO_MAX77663
+	bool "GPIO suport for PMIC MAX77663"
+	depends on MFD_MAX77663
+	help
+	  Say yes here to enable the max77663 to be used as gpio controller.
+	  It requires the driver to be built in the kernel.
+
 config GPIO_MC9S08DZ60
 	bool "MX35 3DS BOARD MC9S08DZ60 GPIO functions"
 	depends on I2C && MACH_MX35_3DS
@@ -287,6 +294,15 @@ config GPIO_PCF857X
 
 	  This driver provides an in-kernel interface to those GPIOs using
 	  platform-neutral GPIO calls.
+
+config GPIO_RC5T583
+	bool "RICOH RC5T583 GPIO"
+	depends on MFD_RC5T583
+	help
+	  Select this option to enable GPIO driver for the Ricoh RC5T583
+	  chip family.
+	  This driver provides the support for driving/reading the gpio pins
+	  of RC5T583 device through standard gpio library.
 
 config GPIO_SX150X
 	bool "Semtech SX150x I2C GPIO expander"
@@ -514,4 +530,11 @@ config GPIO_TPS65910
 	help
 	  Select this option to enable GPIO driver for the TPS65910
 	  chip family.
+
+config GPIO_PALMAS
+	bool "PALMAS GPIO"
+	depends on MFD_PALMAS
+	help
+	  Select this option to enable GPIO driver for the Palmas
+	  chip familly.
 endif

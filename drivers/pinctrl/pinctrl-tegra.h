@@ -1,7 +1,7 @@
 /*
  * Driver for the NVIDIA Tegra pinmux
  *
- * Copyright (c) 2011, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2012, NVIDIA CORPORATION.  All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -51,6 +51,9 @@ struct tegra_function {
  * @ioreset_reg:	IO reset register offset. -1 if unsupported.
  * @ioreset_bank:	IO reset register bank. 0 if unsupported.
  * @ioreset_bit:	IO reset register bit. 0 if unsupported.
+ * @rcv_sel_reg:	Receiver select offset. -1 if unsupported.
+ * @rcv_sel_bank:	Receiver select bank. 0 if unsupported.
+ * @rcv_sel_bit:	Receiver select bit. 0 if unsupported.
  * @drv_reg:		Drive fields register offset. -1 if unsupported.
  *			This register contains the hsm, schmitt, lpmd, drvdn,
  *			drvup, slwr, and slwf parameters.
@@ -66,6 +69,10 @@ struct tegra_function {
  * @slwr_width:		Slew Rising field width. 0 if unsupported.
  * @slwf_bit:		Slew Falling register bit. 0 if unsupported.
  * @slwf_width:		Slew Falling field width. 0 if unsupported.
+ * @drvtype_reg:	Drive type fields register offset. -1 if unsupported.
+ * @drvtype_bank:	Drive type fields register bank. 0 if unsupported.
+ * @drvtype_bit:	Drive type register bit. 0 if unsupported.
+ * @drvtype_width:	Drive type field width. 0 if unsupported.
  *
  * A representation of a group of pins (possibly just one pin) in the Tegra
  * pin controller. Each group allows some parameter or parameters to be
@@ -87,15 +94,19 @@ struct tegra_pingroup {
 	s16 odrain_reg;
 	s16 lock_reg;
 	s16 ioreset_reg;
+	s16 rcv_sel_reg;
 	s16 drv_reg;
+	s16 drvtype_reg;
 	u32 mux_bank:2;
 	u32 pupd_bank:2;
 	u32 tri_bank:2;
 	u32 einput_bank:2;
 	u32 odrain_bank:2;
 	u32 ioreset_bank:2;
+	u32 rcv_sel_bank:2;
 	u32 lock_bank:2;
 	u32 drv_bank:2;
+	u32 drvtype_bank:2;
 	u32 mux_bit:5;
 	u32 pupd_bit:5;
 	u32 tri_bit:5;
@@ -103,6 +114,7 @@ struct tegra_pingroup {
 	u32 odrain_bit:5;
 	u32 lock_bit:5;
 	u32 ioreset_bit:5;
+	u32 rcv_sel_bit:5;
 	u32 hsm_bit:5;
 	u32 schmitt_bit:5;
 	u32 lpmd_bit:5;
@@ -110,10 +122,12 @@ struct tegra_pingroup {
 	u32 drvup_bit:5;
 	u32 slwr_bit:5;
 	u32 slwf_bit:5;
+	u32 drvtype_bit:5;
 	u32 drvdn_width:6;
 	u32 drvup_width:6;
 	u32 slwr_width:6;
 	u32 slwf_width:6;
+	u32 drvtype_width:6;
 };
 
 /**
@@ -139,25 +153,8 @@ struct tegra_pinctrl_soc_data {
 	unsigned ngroups;
 };
 
-/**
- * tegra_pinctrl_soc_initf() - Retrieve pin controller details for a SoC.
- * @soc_data:	This pointer must be updated to point at a struct containing
- *		details of the SoC.
- */
-typedef void (*tegra_pinctrl_soc_initf)(
-			const struct tegra_pinctrl_soc_data **soc_data);
-
-/**
- * tegra20_pinctrl_init() - Retrieve pin controller details for Tegra20
- * @soc_data:	This pointer will be updated to point at a struct containing
- *		details of Tegra20's pin controller.
- */
-void tegra20_pinctrl_init(const struct tegra_pinctrl_soc_data **soc_data);
-/**
- * tegra30_pinctrl_init() - Retrieve pin controller details for Tegra20
- * @soc_data:	This pointer will be updated to point at a struct containing
- *		details of Tegra30's pin controller.
- */
-void tegra30_pinctrl_init(const struct tegra_pinctrl_soc_data **soc_data);
+int tegra_pinctrl_probe(struct platform_device *pdev,
+			const struct tegra_pinctrl_soc_data *soc_data);
+int tegra_pinctrl_remove(struct platform_device *pdev);
 
 #endif

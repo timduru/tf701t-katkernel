@@ -4,6 +4,7 @@
  * Header file for Host Controller registers and I/O accessors.
  *
  *  Copyright (C) 2005-2008 Pierre Ossman, All Rights Reserved.
+ *  Copyright (c) 2013, NVIDIA CORPORATION.  All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -271,12 +272,29 @@ struct sdhci_ops {
 	void (*platform_send_init_74_clocks)(struct sdhci_host *host,
 					     u8 power_mode);
 	unsigned int    (*get_ro)(struct sdhci_host *host);
+	unsigned int    (*get_cd)(struct sdhci_host *host);
 	void	(*platform_reset_enter)(struct sdhci_host *host, u8 mask);
 	void	(*platform_reset_exit)(struct sdhci_host *host, u8 mask);
+	void	(*platform_power_off)(struct sdhci_host *host, u8 power_mode);
 	int	(*set_uhs_signaling)(struct sdhci_host *host, unsigned int uhs);
 	void	(*hw_reset)(struct sdhci_host *host);
+
 	void	(*platform_suspend)(struct sdhci_host *host);
 	void	(*platform_resume)(struct sdhci_host *host);
+	void	(*platform_get_bus)(struct sdhci_host *host);
+	void	(*platform_release_bus)(struct sdhci_host *host);
+	int	(*switch_signal_voltage)(struct sdhci_host *host,
+				unsigned int signal_voltage);
+	void	(*switch_signal_voltage_exit)(struct sdhci_host *host);
+	int	(*suspend)(struct sdhci_host *host);
+	int	(*resume)(struct sdhci_host *host);
+	int	(*execute_freq_tuning)(struct sdhci_host *sdhci, u32 opcode);
+	int	(*get_tuning_counter)(struct sdhci_host *sdhci);
+	int	(*sd_error_stats)(struct sdhci_host *host, u32 int_status);
+	int	(*dfs_gov_init)(struct sdhci_host *host);
+	void	(*dfs_gov_exit)(struct sdhci_host *host);
+	unsigned long	(*dfs_gov_get_target_freq)(struct sdhci_host *host,
+		struct devfreq_dev_status *dev_status);
 };
 
 #ifdef CONFIG_MMC_SDHCI_IO_ACCESSORS

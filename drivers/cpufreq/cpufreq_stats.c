@@ -3,6 +3,7 @@
  *
  *  Copyright (C) 2003-2004 Venkatesh Pallipadi <venkatesh.pallipadi@intel.com>.
  *  (C) 2004 Zou Nan hai <nanhai.zou@intel.com>.
+ *  Copyright (c) 2012-2013, NVIDIA CORPORATION. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -59,7 +60,12 @@ static int cpufreq_stats_update(unsigned int cpu)
 	cur_time = get_jiffies_64();
 	spin_lock(&cpufreq_stats_lock);
 	stat = per_cpu(cpufreq_stats_table, cpu);
-	if (stat->time_in_state)
+	if (!stat) {
+		spin_unlock(&cpufreq_stats_lock);
+		return 0;
+	}
+
+	if (stat->time_in_state && stat->last_index >= 0)
 		stat->time_in_state[stat->last_index] +=
 			cur_time - stat->last_time;
 	stat->last_time = cur_time;
@@ -158,10 +164,10 @@ static struct attribute_group stats_attr_group = {
 static int freq_table_get_index(struct cpufreq_stats *stat, unsigned int freq)
 {
 	int index;
-	for (index = 0; index < stat->max_state; index++)
-		if (stat->freq_table[index] == freq)
-			return index;
-	return -1;
+	for (index = 0; index < stat->state_num; index++)
+		if (stat->freq_table[index] > freq)
+			break;
+	return index - 1; /* below lowest freq in table: return -1 */
 }
 
 /* should be called late in the CPU removal sequence so that the stats
@@ -169,12 +175,17 @@ static int freq_table_get_index(struct cpufreq_stats *stat, unsigned int freq)
  */
 static void cpufreq_stats_free_table(unsigned int cpu)
 {
-	struct cpufreq_stats *stat = per_cpu(cpufreq_stats_table, cpu);
+	struct cpufreq_stats *stat;
+
+	spin_lock(&cpufreq_stats_lock);
+	stat = per_cpu(cpufreq_stats_table, cpu);
+	per_cpu(cpufreq_stats_table, cpu) = NULL;
+	spin_unlock(&cpufreq_stats_lock);
+
 	if (stat) {
 		kfree(stat->time_in_state);
 		kfree(stat);
 	}
-	per_cpu(cpufreq_stats_table, cpu) = NULL;
 }
 
 /* must be called early in the CPU removal sequence (before
@@ -184,7 +195,7 @@ static void cpufreq_stats_free_sysfs(unsigned int cpu)
 {
 	struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
 	if (policy && policy->cpu == cpu)
-		sysfs_remove_group(&policy->kobj, &stats_attr_group);
+		sysfs_remove_group(policy->kobj, &stats_attr_group);
 	if (policy)
 		cpufreq_cpu_put(policy);
 }
@@ -192,7 +203,7 @@ static void cpufreq_stats_free_sysfs(unsigned int cpu)
 static int cpufreq_stats_create_table(struct cpufreq_policy *policy,
 		struct cpufreq_frequency_table *table)
 {
-	unsigned int i, j, count = 0, ret = 0;
+	unsigned int i, j, k, l, count = 0, ret = 0;
 	struct cpufreq_stats *stat;
 	struct cpufreq_policy *data;
 	unsigned int alloc_size;
@@ -209,7 +220,7 @@ static int cpufreq_stats_create_table(struct cpufreq_policy *policy,
 		goto error_get_fail;
 	}
 
-	ret = sysfs_create_group(&data->kobj, &stats_attr_group);
+	ret = sysfs_create_group(data->kobj, &stats_attr_group);
 	if (ret)
 		goto error_out;
 
@@ -244,8 +255,16 @@ static int cpufreq_stats_create_table(struct cpufreq_policy *policy,
 		unsigned int freq = table[i].frequency;
 		if (freq == CPUFREQ_ENTRY_INVALID)
 			continue;
-		if (freq_table_get_index(stat, freq) == -1)
-			stat->freq_table[j++] = freq;
+
+		/* Insert in sorted stat->freq_table */
+		for (k = 0; k < j && stat->freq_table[k] < freq; k++)
+			;
+		if (stat->freq_table[k] == freq)
+			continue;
+		for (l = j; l > k; l--)
+			stat->freq_table[l] = stat->freq_table[l - 1];
+		stat->freq_table[k] = freq;
+		j++;
 	}
 	stat->state_num = j;
 	spin_lock(&cpufreq_stats_lock);
@@ -290,30 +309,52 @@ static int cpufreq_stat_notifier_trans(struct notifier_block *nb,
 	if (val != CPUFREQ_POSTCHANGE)
 		return 0;
 
+	cpufreq_stats_update(freq->cpu);
+
+	spin_lock(&cpufreq_stats_lock);
 	stat = per_cpu(cpufreq_stats_table, freq->cpu);
-	if (!stat)
+	if (!stat) {
+		spin_unlock(&cpufreq_stats_lock);
 		return 0;
+	}
 
 	old_index = stat->last_index;
 	new_index = freq_table_get_index(stat, freq->new);
 
-	/* We can't do stat->time_in_state[-1]= .. */
-	if (old_index == -1 || new_index == -1)
+	if (old_index == new_index) {
+		spin_unlock(&cpufreq_stats_lock);
 		return 0;
+	}
 
-	cpufreq_stats_update(freq->cpu);
-
-	if (old_index == new_index)
-		return 0;
-
-	spin_lock(&cpufreq_stats_lock);
 	stat->last_index = new_index;
 #ifdef CONFIG_CPU_FREQ_STAT_DETAILS
-	stat->trans_table[old_index * stat->max_state + new_index]++;
+	if (old_index >= 0 && new_index >= 0)
+		stat->trans_table[old_index * stat->max_state + new_index]++;
 #endif
 	stat->total_trans++;
 	spin_unlock(&cpufreq_stats_lock);
 	return 0;
+}
+
+static int cpufreq_stats_create_table_cpu(unsigned int cpu)
+{
+	struct cpufreq_policy *policy;
+	struct cpufreq_frequency_table *table;
+	int ret = -ENODEV;
+
+	policy = cpufreq_cpu_get(cpu);
+	if (!policy)
+		return -ENODEV;
+
+	table = cpufreq_frequency_get_table(cpu);
+	if (!table)
+		goto out;
+
+	ret = cpufreq_stats_create_table(policy, table);
+
+out:
+	cpufreq_cpu_put(policy);
+	return ret;
 }
 
 static int __cpuinit cpufreq_stat_cpu_callback(struct notifier_block *nfb,
@@ -334,6 +375,10 @@ static int __cpuinit cpufreq_stat_cpu_callback(struct notifier_block *nfb,
 	case CPU_DEAD:
 	case CPU_DEAD_FROZEN:
 		cpufreq_stats_free_table(cpu);
+		break;
+	case CPU_DOWN_FAILED:
+	case CPU_DOWN_FAILED_FROZEN:
+		cpufreq_stats_create_table_cpu(cpu);
 		break;
 	}
 	return NOTIFY_OK;

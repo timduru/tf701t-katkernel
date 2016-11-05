@@ -6,6 +6,7 @@
  *
  * Based on board-harmony.c
  * Copyright (C) 2010 Google, Inc.
+ * Copyright (C) 2011-2012 NVIDIA Corporation.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -33,11 +34,13 @@
 
 #include <mach/iomap.h>
 #include <mach/sdhci.h>
+#include <mach/pci.h>
 
 #include "board.h"
 #include "clock.h"
 #include "devices.h"
 #include "gpio-names.h"
+#include "common.h"
 
 #include "board-trimslice.h"
 
@@ -80,6 +83,13 @@ static struct platform_device trimslice_audio_device = {
 	.id	= 0,
 };
 
+static struct tegra_pci_platform_data trimslice_pci_platform_data = {
+	.port_status[0]	= 1,
+	.port_status[1]	= 1,
+	.use_dock_detect	= 0,
+	.gpio		= 0,
+};
+
 static struct platform_device *trimslice_devices[] __initdata = {
 	&debug_uart,
 	&tegra_sdhci_device1,
@@ -88,6 +98,7 @@ static struct platform_device *trimslice_devices[] __initdata = {
 	&tegra_das_device,
 	&tegra_pcm_device,
 	&trimslice_audio_device,
+	&tegra_pci_device,
 };
 
 static struct i2c_board_info trimslice_i2c3_board_info[] = {
@@ -147,23 +158,15 @@ static __initdata struct tegra_clk_init_table trimslice_clk_init_table[] = {
 	{ NULL,		NULL,		0,		0},
 };
 
-static int __init tegra_trimslice_pci_init(void)
-{
-	if (!machine_is_trimslice())
-		return 0;
-
-	return tegra_pcie_init(true, true);
-}
-subsys_initcall(tegra_trimslice_pci_init);
-
 static void __init tegra_trimslice_init(void)
 {
 	tegra_clk_init_from_table(trimslice_clk_init_table);
-
+	tegra_soc_device_init("trimslice");
 	trimslice_pinmux_init();
 
 	tegra_sdhci_device1.dev.platform_data = &sdhci_pdata1;
 	tegra_sdhci_device4.dev.platform_data = &sdhci_pdata4;
+	tegra_pci_device.dev.platform_data = &trimslice_pci_platform_data;
 
 	platform_add_devices(trimslice_devices, ARRAY_SIZE(trimslice_devices));
 
@@ -173,6 +176,7 @@ static void __init tegra_trimslice_init(void)
 
 MACHINE_START(TRIMSLICE, "trimslice")
 	.atag_offset	= 0x100,
+	.soc		= &tegra_soc_desc,
 	.fixup		= tegra_trimslice_fixup,
 	.map_io         = tegra_map_common_io,
 	.init_early	= tegra20_init_early,

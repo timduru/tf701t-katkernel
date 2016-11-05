@@ -30,7 +30,6 @@ static DEFINE_PER_CPU(struct cpuidle_device, at91_cpuidle_device);
 
 /* Actual code that puts the SoC in different idle states */
 static int at91_enter_idle(struct cpuidle_device *dev,
-			struct cpuidle_driver *drv,
 			       int index)
 {
 	at91_standby();

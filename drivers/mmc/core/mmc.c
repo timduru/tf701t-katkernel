@@ -4,6 +4,7 @@
  *  Copyright (C) 2003-2004 Russell King, All Rights Reserved.
  *  Copyright (C) 2005-2007 Pierre Ossman, All Rights Reserved.
  *  MMCv4 support Copyright (C) 2006 Philip Langdale, All Rights Reserved.
+ *  Copyright (c) 2012-2013, NVIDIA CORPORATION.  All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -96,6 +97,7 @@ static int mmc_decode_cid(struct mmc_card *card)
 		card->cid.prod_name[3]	= UNSTUFF_BITS(resp, 72, 8);
 		card->cid.prod_name[4]	= UNSTUFF_BITS(resp, 64, 8);
 		card->cid.prod_name[5]	= UNSTUFF_BITS(resp, 56, 8);
+		card->cid.prod_rev	= UNSTUFF_BITS(resp, 48, 8);
 		card->cid.serial	= UNSTUFF_BITS(resp, 16, 32);
 		card->cid.month		= UNSTUFF_BITS(resp, 12, 4);
 		card->cid.year		= UNSTUFF_BITS(resp, 8, 4) + 1997;
@@ -106,6 +108,9 @@ static int mmc_decode_cid(struct mmc_card *card)
 			mmc_hostname(card->host), card->csd.mmca_vsn);
 		return -EINVAL;
 	}
+
+	pr_info("%s: prv: 0x%x, manfid: 0x%x\n", mmc_hostname(card->host),
+		card->cid.prod_rev, card->cid.manfid);
 
 	return 0;
 }
@@ -235,6 +240,36 @@ static int mmc_get_ext_csd(struct mmc_card *card, u8 **new_ext_csd)
 	return err;
 }
 
+static void mmc_select_card_type(struct mmc_card *card)
+{
+	struct mmc_host *host = card->host;
+	u8 card_type = card->ext_csd.raw_card_type & EXT_CSD_CARD_TYPE_MASK;
+	unsigned int caps = host->caps, caps2 = host->caps2;
+	unsigned int hs_max_dtr = 0;
+
+	if (card_type & EXT_CSD_CARD_TYPE_26)
+		hs_max_dtr = MMC_HIGH_26_MAX_DTR;
+
+	if (caps & MMC_CAP_MMC_HIGHSPEED &&
+			card_type & EXT_CSD_CARD_TYPE_52)
+		hs_max_dtr = MMC_HIGH_52_MAX_DTR;
+
+	if ((caps & MMC_CAP_1_8V_DDR &&
+			card_type & EXT_CSD_CARD_TYPE_DDR_1_8V) ||
+	    (caps & MMC_CAP_1_2V_DDR &&
+			card_type & EXT_CSD_CARD_TYPE_DDR_1_2V))
+		hs_max_dtr = MMC_HIGH_DDR_MAX_DTR;
+
+	if ((caps2 & MMC_CAP2_HS200_1_8V_SDR &&
+			card_type & EXT_CSD_CARD_TYPE_SDR_1_8V) ||
+	    (caps2 & MMC_CAP2_HS200_1_2V_SDR &&
+			card_type & EXT_CSD_CARD_TYPE_SDR_1_2V))
+		hs_max_dtr = MMC_HS200_MAX_DTR;
+
+	card->ext_csd.hs_max_dtr = hs_max_dtr;
+	card->ext_csd.card_type = card_type;
+}
+
 /*
  * Decode extended CSD.
  */
@@ -243,6 +278,7 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	int err = 0, idx;
 	unsigned int part_size;
 	u8 hc_erase_grp_sz = 0, hc_wp_grp_sz = 0;
+	unsigned int size = 0;
 
 	BUG_ON(!card);
 
@@ -262,7 +298,7 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	}
 
 	card->ext_csd.rev = ext_csd[EXT_CSD_REV];
-	if (card->ext_csd.rev > 6) {
+	if (card->ext_csd.rev > 7) {
 		pr_err("%s: unrecognised EXT_CSD revision %d\n",
 			mmc_hostname(card->host), card->ext_csd.rev);
 		err = -EINVAL;
@@ -284,56 +320,16 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		if (card->ext_csd.sectors > (2u * 1024 * 1024 * 1024) / 512)
 			mmc_card_set_blockaddr(card);
 	}
-	card->ext_csd.raw_card_type = ext_csd[EXT_CSD_CARD_TYPE];
-	switch (ext_csd[EXT_CSD_CARD_TYPE] & EXT_CSD_CARD_TYPE_MASK) {
-	case EXT_CSD_CARD_TYPE_SDR_ALL:
-	case EXT_CSD_CARD_TYPE_SDR_ALL_DDR_1_8V:
-	case EXT_CSD_CARD_TYPE_SDR_ALL_DDR_1_2V:
-	case EXT_CSD_CARD_TYPE_SDR_ALL_DDR_52:
-		card->ext_csd.hs_max_dtr = 200000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_SDR_200;
-		break;
-	case EXT_CSD_CARD_TYPE_SDR_1_2V_ALL:
-	case EXT_CSD_CARD_TYPE_SDR_1_2V_DDR_1_8V:
-	case EXT_CSD_CARD_TYPE_SDR_1_2V_DDR_1_2V:
-	case EXT_CSD_CARD_TYPE_SDR_1_2V_DDR_52:
-		card->ext_csd.hs_max_dtr = 200000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_SDR_1_2V;
-		break;
-	case EXT_CSD_CARD_TYPE_SDR_1_8V_ALL:
-	case EXT_CSD_CARD_TYPE_SDR_1_8V_DDR_1_8V:
-	case EXT_CSD_CARD_TYPE_SDR_1_8V_DDR_1_2V:
-	case EXT_CSD_CARD_TYPE_SDR_1_8V_DDR_52:
-		card->ext_csd.hs_max_dtr = 200000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_SDR_1_8V;
-		break;
-	case EXT_CSD_CARD_TYPE_DDR_52 | EXT_CSD_CARD_TYPE_52 |
-	     EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 52000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_DDR_52;
-		break;
-	case EXT_CSD_CARD_TYPE_DDR_1_2V | EXT_CSD_CARD_TYPE_52 |
-	     EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 52000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_DDR_1_2V;
-		break;
-	case EXT_CSD_CARD_TYPE_DDR_1_8V | EXT_CSD_CARD_TYPE_52 |
-	     EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 52000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_DDR_1_8V;
-		break;
-	case EXT_CSD_CARD_TYPE_52 | EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 52000000;
-		break;
-	case EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 26000000;
-		break;
-	default:
-		/* MMC v4 spec says this cannot happen */
-		pr_warning("%s: card is mmc v4 but doesn't "
-			"support any high-speed modes.\n",
-			mmc_hostname(card->host));
+
+	size = card->ext_csd.sectors >> 20;
+	card->mmc_total_size = 1;
+	while (size > 0 && (size >> 1) > 0) {
+		size = size >> 1;
+		card->mmc_total_size = card->mmc_total_size * 2;
 	}
+
+	card->ext_csd.raw_card_type = ext_csd[EXT_CSD_CARD_TYPE];
+	mmc_select_card_type(card);
 
 	card->ext_csd.raw_s_a_timeout = ext_csd[EXT_CSD_S_A_TIMEOUT];
 	card->ext_csd.raw_erase_timeout_mult =
@@ -461,12 +457,22 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 					MMC_BLK_DATA_AREA_GP);
 			}
 		}
-		card->ext_csd.sec_trim_mult =
-			ext_csd[EXT_CSD_SEC_TRIM_MULT];
-		card->ext_csd.sec_erase_mult =
-			ext_csd[EXT_CSD_SEC_ERASE_MULT];
-		card->ext_csd.sec_feature_support =
-			ext_csd[EXT_CSD_SEC_FEATURE_SUPPORT];
+
+		if (card->ext_csd.rev < 6) {
+			card->ext_csd.sec_trim_mult =
+				ext_csd[EXT_CSD_SEC_TRIM_MULT];
+			card->ext_csd.sec_erase_mult =
+				ext_csd[EXT_CSD_SEC_ERASE_MULT];
+			card->ext_csd.sec_feature_support =
+				ext_csd[EXT_CSD_SEC_FEATURE_SUPPORT];
+		}
+
+		if (card->ext_csd.rev == 6) {
+			card->ext_csd.sec_feature_support =
+				ext_csd[EXT_CSD_SEC_FEATURE_SUPPORT] &
+				~EXT_CSD_SEC_ER_EN;
+		}
+
 		card->ext_csd.trim_timeout = 300 *
 			ext_csd[EXT_CSD_TRIM_MULT];
 
@@ -495,11 +501,23 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 				ext_csd[EXT_CSD_OUT_OF_INTERRUPT_TIME] * 10;
 		}
 
+		/* Check whether the eMMC card supports background ops */
+		if (ext_csd[EXT_CSD_BKOPS_SUPPORT] & 0x1)
+			card->ext_csd.bk_ops = 1;
+
 		card->ext_csd.rel_param = ext_csd[EXT_CSD_WR_REL_PARAM];
 		card->ext_csd.rst_n_function = ext_csd[EXT_CSD_RST_N_FUNCTION];
+
+		/* Check whether the eMMC card needs proactive idle bkops policy */
+		if ((card->cid.manfid == 0x90 && card->cid.prod_rev != 0x1)
+				|| card->cid.manfid == 0x45)
+			card->ext_csd.refresh = 1;
 	}
 
-	card->ext_csd.raw_erased_mem_count = ext_csd[EXT_CSD_ERASED_MEM_CONT];
+	/* eMMC v4.5 or later */
+	if (card->ext_csd.rev >= 6)
+		card->ext_csd.feature_support |= MMC_DISCARD_FEATURE;
+
 	if (ext_csd[EXT_CSD_ERASED_MEM_CONT])
 		card->erased_byte = 0xFF;
 	else
@@ -533,6 +551,13 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		} else {
 			card->ext_csd.data_tag_unit_size = 0;
 		}
+
+		card->ext_csd.max_packed_writes =
+			ext_csd[EXT_CSD_MAX_PACKED_WRITES];
+		card->ext_csd.max_packed_reads =
+			ext_csd[EXT_CSD_MAX_PACKED_READS];
+	} else {
+		card->ext_csd.data_sector_size = 512;
 	}
 
 out:
@@ -619,10 +644,13 @@ MMC_DEV_ATTR(hwrev, "0x%x\n", card->cid.hwrev);
 MMC_DEV_ATTR(manfid, "0x%06x\n", card->cid.manfid);
 MMC_DEV_ATTR(name, "%s\n", card->cid.prod_name);
 MMC_DEV_ATTR(oemid, "0x%04x\n", card->cid.oemid);
+MMC_DEV_ATTR(sec_count, "0x%x\n", card->ext_csd.sectors);
+MMC_DEV_ATTR(prv, "0x%x\n", card->cid.prod_rev);
 MMC_DEV_ATTR(serial, "0x%08x\n", card->cid.serial);
 MMC_DEV_ATTR(enhanced_area_offset, "%llu\n",
 		card->ext_csd.enhanced_area_offset);
 MMC_DEV_ATTR(enhanced_area_size, "%u\n", card->ext_csd.enhanced_area_size);
+MMC_DEV_ATTR(emmc_total_size, "%d\n", card->mmc_total_size);
 
 static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_cid.attr,
@@ -635,9 +663,12 @@ static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_manfid.attr,
 	&dev_attr_name.attr,
 	&dev_attr_oemid.attr,
+	&dev_attr_sec_count.attr,
+	&dev_attr_prv.attr,
 	&dev_attr_serial.attr,
 	&dev_attr_enhanced_area_offset.attr,
 	&dev_attr_enhanced_area_size.attr,
+	&dev_attr_emmc_total_size.attr,
 	NULL,
 };
 
@@ -941,6 +972,20 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		if (err)
 			goto free_card;
 
+		if (card->ext_csd.refresh) {
+			card->queue_idle_time_bkops = false;
+			init_timer(&card->timer);
+			card->timer.data = (unsigned long) card;
+			card->timer.function = mmc_refresh;
+			/*
+			 * Prolong initial timer of refresh function
+			 * to avoid file system corruption
+			 */
+			card->timer.expires = MMC_REFRESH_INTERVAL;
+			card->timer.expires *= HZ;
+			card->timer.expires += jiffies;
+			add_timer(&card->timer);
+		}
 		/* If doing byte addressing, check if required to do sector
 		 * addressing.  Handle the case of <2GB cards needing sector
 		 * addressing.  See section 8.1 JEDEC Standard JED84-A441;
@@ -1053,6 +1098,24 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	}
 
 	/*
+	 * Enable Background ops feature (if supported)
+	 */
+	if (card->ext_csd.bk_ops && (card->host->caps2 & MMC_CAP2_BKOPS)
+			&& card->cid.prod_rev != 0x1) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+			EXT_CSD_BKOPS_EN, 1, 0);
+		if (err && err != -EBADMSG)
+			goto free_card;
+		if (err) {
+			pr_warning("%s: Enabling BK ops failed\n",
+				   mmc_hostname(card->host));
+			err = 0;
+		} else {
+			card->ext_csd.bk_ops_en = 1;
+		}
+	}
+
+	/*
 	 * Compute bus speed.
 	 */
 	max_dtr = (unsigned int)-1;
@@ -1060,6 +1123,8 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	if (mmc_card_highspeed(card) || mmc_card_hs200(card)) {
 		if (max_dtr > card->ext_csd.hs_max_dtr)
 			max_dtr = card->ext_csd.hs_max_dtr;
+		if (mmc_card_highspeed(card) && (max_dtr > 52000000))
+			max_dtr = 52000000;
 	} else if (max_dtr > card->csd.max_dtr) {
 		max_dtr = card->csd.max_dtr;
 	}
@@ -1267,10 +1332,54 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		}
 	}
 
+	/*
+	 * The mandatory minimum values are defined for packed command.
+	 * read: 5, write: 3
+	 */
+	if (card->ext_csd.max_packed_writes >= 3 &&
+	    card->ext_csd.max_packed_reads >= 5 &&
+	    host->caps2 & MMC_CAP2_PACKED_CMD && card->cid.manfid != 0x90) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				EXT_CSD_EXP_EVENTS_CTRL,
+				EXT_CSD_PACKED_EVENT_EN,
+				card->ext_csd.generic_cmd6_time);
+		if (err && err != -EBADMSG)
+			goto free_card;
+		if (err) {
+			pr_warn("%s: Enabling packed event failed\n",
+				mmc_hostname(card->host));
+			card->ext_csd.packed_event_en = 0;
+			err = 0;
+		} else {
+			card->ext_csd.packed_event_en = 1;
+		}
+	}
+
+	if (card->ext_csd.bk_ops_en)
+		INIT_WORK(&card->bkops_polling, mmc_bkops_completion_polling);
+
 	if (!oldcard)
 		host->card = card;
 
 	mmc_free_ext_csd(ext_csd);
+#ifdef CONFIG_MMC_FREQ_SCALING
+	/*
+	 * This implementation is still in experimental phase. So, don't fail
+	 * enumeration even if dev freq init fails.
+	 */
+	if (!oldcard && host->ios.timing == MMC_TIMING_MMC_HS200) {
+		if (host->caps2 & MMC_CAP2_FREQ_SCALING) {
+			err = mmc_devfreq_init(host);
+			if (err)
+				dev_info(mmc_dev(host),
+					"Devfreq scaling init failed %d\n",
+					err);
+			else
+				dev_info(mmc_dev(host),
+					"DFS is enabled successfully\n");
+		}
+	}
+#endif
 	return 0;
 
 free_card:
@@ -1289,7 +1398,9 @@ static void mmc_remove(struct mmc_host *host)
 {
 	BUG_ON(!host);
 	BUG_ON(!host->card);
-
+#ifdef CONFIG_MMC_FREQ_SCALING
+	mmc_devfreq_deinit(host);
+#endif
 	mmc_remove_card(host->card);
 	host->card = NULL;
 }
@@ -1341,8 +1452,11 @@ static int mmc_suspend(struct mmc_host *host)
 	BUG_ON(!host);
 	BUG_ON(!host->card);
 
+	if (host->card->ext_csd.refresh)
+		del_timer_sync(&host->card->timer);
 	mmc_claim_host(host);
-	if (mmc_card_can_sleep(host)) {
+	if (mmc_card_can_sleep(host) &&
+		!(host->caps2 & MMC_CAP2_NO_SLEEP_CMD)) {
 		err = mmc_card_sleep(host);
 		if (!err)
 			mmc_card_set_sleep(host->card);
@@ -1366,9 +1480,15 @@ static int mmc_resume(struct mmc_host *host)
 
 	BUG_ON(!host);
 	BUG_ON(!host->card);
-
+	if (host->card->ext_csd.refresh) {
+		host->card->timer.expires = jiffies +
+			((MMC_BKOPS_INTERVAL < MMC_REFRESH_INTERVAL) ?
+			 MMC_BKOPS_INTERVAL : MMC_REFRESH_INTERVAL);
+		add_timer(&host->card->timer);
+	}
 	mmc_claim_host(host);
-	if (mmc_card_is_sleep(host->card)) {
+	if (mmc_card_is_sleep(host->card) &&
+		!(host->caps2 & MMC_CAP2_NO_SLEEP_CMD)) {
 		err = mmc_card_awake(host);
 		mmc_card_clr_sleep(host->card);
 	} else

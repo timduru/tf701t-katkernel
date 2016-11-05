@@ -1193,7 +1193,7 @@ void get_monotonic_boottime(struct timespec *ts)
 	} while (read_seqretry(&timekeeper.lock, seq));
 
 	set_normalized_timespec(ts, ts->tv_sec + tomono.tv_sec + sleep.tv_sec,
-			ts->tv_nsec + tomono.tv_nsec + sleep.tv_nsec + nsecs);
+			nsecs + ts->tv_nsec + tomono.tv_nsec + sleep.tv_nsec);
 }
 EXPORT_SYMBOL_GPL(get_monotonic_boottime);
 
@@ -1348,8 +1348,6 @@ ktime_t ktime_get_monotonic_offset(void)
 
 	return timespec_to_ktime(wtom);
 }
-EXPORT_SYMBOL_GPL(ktime_get_monotonic_offset);
-
 
 /**
  * xtime_update() - advances the timekeeping infrastructure

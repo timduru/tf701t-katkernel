@@ -335,6 +335,7 @@ int mmc_send_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	return mmc_send_cxd_data(card, card->host, MMC_SEND_EXT_CSD,
 			ext_csd, 512);
 }
+EXPORT_SYMBOL_GPL(mmc_send_ext_csd);
 
 int mmc_spi_read_ocr(struct mmc_host *host, int highcap, u32 *ocrp)
 {
@@ -580,6 +581,116 @@ int mmc_send_hpi_cmd(struct mmc_card *card, u32 *status)
 	}
 	if (status)
 		*status = cmd.resp[0];
+
+	return 0;
+}
+
+int mmc_send_bk_ops_cmd(struct mmc_card *card, bool is_synchronous)
+{
+	int err;
+	struct mmc_command cmd;
+	u32 status;
+
+	BUG_ON(!card);
+	BUG_ON(!card->host);
+
+	memset(&cmd, 0, sizeof(struct mmc_command));
+
+	cmd.opcode = MMC_SWITCH;
+	cmd.arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
+		(EXT_CSD_BKOPS_START << 16) |
+		(1 << 8) |
+		EXT_CSD_CMD_SET_NORMAL;
+	if (is_synchronous)
+		cmd.flags = MMC_RSP_R1B | MMC_CMD_AC;
+	else
+		cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
+
+	err = mmc_wait_for_cmd(card->host, &cmd, MMC_CMD_RETRIES);
+	if (err)
+		return err;
+
+	/* No need to check card status in case of non-blocking BKOPS */
+	if (!is_synchronous)
+		return 0;
+
+	/* Must check status to be sure of no errors */
+	do {
+		err = mmc_send_status(card, &status);
+		if (err)
+			return err;
+		if (card->host->caps & MMC_CAP_WAIT_WHILE_BUSY)
+			break;
+	} while (R1_CURRENT_STATE(status) == 7);
+
+	if (status & 0xFDFFA000)
+		printk(KERN_ERR "%s: unexpected status %#x after "
+			   "switch", mmc_hostname(card->host), status);
+	if (status & R1_SWITCH_ERROR)
+		return -EBADMSG;
+
+	return 0;
+}
+
+int mmc_gen_cmd(struct mmc_card *card, void *buf, u8 index, u8 arg1, u8 arg2, u8 mode)
+{
+	struct mmc_request mrq;
+	struct mmc_command cmd;
+	struct mmc_data data;
+	struct mmc_command stop;
+	struct scatterlist sg;
+	void *data_buf;
+
+	mmc_set_blocklen(card, 512);
+
+	data_buf = kmalloc(512, GFP_KERNEL);
+	if (data_buf == NULL)
+		return -ENOMEM;
+
+	memset(&mrq, 0, sizeof(struct mmc_request));
+	memset(&cmd, 0, sizeof(struct mmc_command));
+	memset(&data, 0, sizeof(struct mmc_data));
+	memset(&stop, 0, sizeof(struct mmc_command));
+
+	mrq.cmd = &cmd;
+	mrq.data = &data;
+	mrq.stop = &stop;
+
+	cmd.opcode = MMC_GEN_CMD;
+	cmd.arg = (arg2 << 16) |
+		  (arg1 << 8) |
+		  (index << 1) |
+		  mode;
+
+	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
+
+	data.blksz = 512;
+	data.blocks = 1;
+	data.flags = MMC_DATA_READ;
+	data.sg = &sg;
+	data.sg_len = 1;
+
+	stop.opcode = MMC_STOP_TRANSMISSION;
+	stop.arg = 0;
+	stop.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
+
+	sg_init_one(&sg, data_buf, 512);
+
+	mmc_set_data_timeout(&data, card);
+
+	mmc_claim_host(card->host);
+	mmc_wait_for_req(card->host, &mrq);
+	mmc_release_host(card->host);
+
+	memcpy(buf, data_buf, 512);
+	kfree(data_buf);
+
+	if (cmd.error)
+		return cmd.error;
+	if (data.error)
+		return data.error;
+	if (stop.error)
+		return stop.error;
 
 	return 0;
 }

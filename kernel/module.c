@@ -2558,7 +2558,7 @@ static int check_modinfo(struct module *mod, struct load_info *info)
 	} else if (!same_magic(modmagic, vermagic, info->index.vers)) {
 		printk(KERN_ERR "%s: version magic '%s' should be '%s'\n",
 		       mod->name, modmagic, vermagic);
-		return -ENOEXEC;
+		//return -ENOEXEC;
 	}
 
 	if (!get_modinfo(info, "intree"))
@@ -2605,7 +2605,7 @@ static void find_module_sections(struct module *mod, struct load_info *info)
 	mod->unused_gpl_crcs = section_addr(info, "__kcrctab_unused_gpl");
 #endif
 #ifdef CONFIG_CONSTRUCTORS
-	mod->ctors = section_objs(info, ".ctors",
+	mod->ctors = section_objs(info, CONFIG_GCOV_CTORS,
 				  sizeof(*mod->ctors), &mod->num_ctors);
 #endif
 

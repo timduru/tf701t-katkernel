@@ -2,6 +2,7 @@
  * composite.c - infrastructure for Composite USB Gadgets
  *
  * Copyright (C) 2006-2008 David Brownell
+ * Copyright (c) 2013 NVIDIA CORPORATION. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,6 +21,7 @@
 
 #include <linux/usb/composite.h>
 #include <asm/unaligned.h>
+#include <linux/wakelock.h>
 
 /*
  * The code in this file is utility code, used to build a gadget driver
@@ -30,6 +32,7 @@
 
 /* big enough to hold our biggest descriptor */
 #define USB_BUFSIZ	1024
+static struct wake_lock usb_config_wake_lock;
 
 static struct usb_composite_driver *composite;
 static int (*composite_gadget_bind)(struct usb_composite_dev *cdev);
@@ -357,6 +360,7 @@ static int config_buf(struct usb_configuration *config,
 	int				len = USB_BUFSIZ - USB_DT_CONFIG_SIZE;
 	struct usb_function		*f;
 	int				status;
+	int				interfaceCount = 0;
 
 	/* write the config descriptor */
 	c = buf;
@@ -367,6 +371,8 @@ static int config_buf(struct usb_configuration *config,
 	c->bConfigurationValue = config->bConfigurationValue;
 	c->iConfiguration = config->iConfiguration;
 	c->bmAttributes = USB_CONFIG_ATT_ONE | config->bmAttributes;
+	if (CONFIG_USB_GADGET_VBUS_DRAW <= USB_SELF_POWER_VBUS_MAX_DRAW)
+		c->bmAttributes |= USB_CONFIG_ATT_SELFPOWER;
 	c->bMaxPower = config->bMaxPower ? : (CONFIG_USB_GADGET_VBUS_DRAW / 2);
 
 	/* There may be e.g. OTG descriptors */
@@ -394,8 +400,16 @@ static int config_buf(struct usb_configuration *config,
 			descriptors = f->descriptors;
 		}
 
-		if (!descriptors)
+		if (f->hidden || !descriptors || descriptors[0] == NULL) {
+			for (; f != config->interface[interfaceCount];) {
+				interfaceCount++;
+				c->bNumInterfaces--;
+			}
 			continue;
+		}
+		for (; f != config->interface[interfaceCount];)
+			interfaceCount++;
+
 		status = usb_descriptor_fillbuf(next, len,
 			(const struct usb_descriptor_header **) descriptors);
 		if (status < 0)
@@ -584,6 +598,8 @@ static void reset_config(struct usb_composite_dev *cdev)
 		bitmap_zero(f->endpoints, 32);
 	}
 	cdev->config = NULL;
+	wake_unlock(&usb_config_wake_lock);
+	printk(KERN_INFO "%s : usb reset config wake unlock --\n", __func__);
 }
 
 static int set_config(struct usb_composite_dev *cdev,
@@ -594,6 +610,9 @@ static int set_config(struct usb_composite_dev *cdev,
 	int			result = -EINVAL;
 	unsigned		power = gadget_is_otg(gadget) ? 8 : 100;
 	int			tmp;
+
+	wake_lock(&usb_config_wake_lock);
+	printk(KERN_INFO "%s : usb set config wake lock ++\n", __func__);
 
 	if (number) {
 		list_for_each_entry(c, &cdev->configs, list) {
@@ -734,6 +753,7 @@ int usb_add_config(struct usb_composite_dev *cdev,
 
 	INIT_LIST_HEAD(&config->functions);
 	config->next_interface_id = 0;
+	memset(config->interface, 0, sizeof(config->interface));
 
 	status = bind(config);
 	if (status < 0) {
@@ -772,6 +792,55 @@ done:
 		DBG(cdev, "added config '%s'/%u --> %d\n", config->label,
 				config->bConfigurationValue, status);
 	return status;
+}
+
+static int unbind_config(struct usb_composite_dev *cdev,
+			      struct usb_configuration *config)
+{
+	while (!list_empty(&config->functions)) {
+		struct usb_function		*f;
+
+		f = list_first_entry(&config->functions,
+				struct usb_function, list);
+		list_del(&f->list);
+		if (f->unbind) {
+			DBG(cdev, "unbind function '%s'/%p\n", f->name, f);
+			f->unbind(config, f);
+			/* may free memory for "f" */
+		}
+	}
+	if (config->unbind) {
+		DBG(cdev, "unbind config '%s'/%p\n", config->label, config);
+		config->unbind(config);
+			/* may free memory for "c" */
+	}
+	return 0;
+}
+
+/**
+ * usb_remove_config() - remove a configuration from a device.
+ * @cdev: wraps the USB gadget
+ * @config: the configuration
+ *
+ * Drivers must call usb_gadget_disconnect before calling this function
+ * to disconnect the device from the host and make sure the host will not
+ * try to enumerate the device while we are changing the config list.
+ */
+int usb_remove_config(struct usb_composite_dev *cdev,
+		      struct usb_configuration *config)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&cdev->lock, flags);
+
+	if (cdev->config == config)
+		reset_config(cdev);
+
+	list_del(&config->list);
+
+	spin_unlock_irqrestore(&cdev->lock, flags);
+
+	return unbind_config(cdev, config);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -1260,6 +1329,25 @@ unknown:
 				value = c->setup(c, ctrl);
 		}
 
+		/* If the vendor request is not processed (value < 0),
+		 * call all device registered configure setup callbacks
+		 * to process it.
+		 * This is used to handle the following cases:
+		 * - vendor request is for the device and arrives before
+		 * setconfiguration.
+		 * - Some devices are required to handle vendor request before
+		 * setconfiguration such as MTP, USBNET.
+		 */
+
+		if (value < 0) {
+			struct usb_configuration        *cfg;
+
+			list_for_each_entry(cfg, &cdev->configs, list) {
+			if (cfg && cfg->setup)
+				value = cfg->setup(cfg, ctrl);
+			}
+		}
+
 		goto done;
 	}
 
@@ -1326,30 +1414,14 @@ composite_unbind(struct usb_gadget *gadget)
 	 */
 	WARN_ON(cdev->config);
 
+	wake_lock_destroy(&usb_config_wake_lock);
+
 	while (!list_empty(&cdev->configs)) {
 		struct usb_configuration	*c;
-
 		c = list_first_entry(&cdev->configs,
 				struct usb_configuration, list);
-		while (!list_empty(&c->functions)) {
-			struct usb_function		*f;
-
-			f = list_first_entry(&c->functions,
-					struct usb_function, list);
-			list_del(&f->list);
-			if (f->unbind) {
-				DBG(cdev, "unbind function '%s'/%p\n",
-						f->name, f);
-				f->unbind(c, f);
-				/* may free memory for "f" */
-			}
-		}
 		list_del(&c->list);
-		if (c->unbind) {
-			DBG(cdev, "unbind config '%s'/%p\n", c->label, c);
-			c->unbind(c);
-			/* may free memory for "c" */
-		}
+		unbind_config(cdev, c);
 	}
 	if (composite->unbind)
 		composite->unbind(cdev);
@@ -1386,6 +1458,7 @@ static int composite_bind(struct usb_gadget *gadget)
 	if (!cdev)
 		return status;
 
+	wake_lock_init(&usb_config_wake_lock, WAKE_LOCK_SUSPEND, "usb_config_wake_lock");
 	spin_lock_init(&cdev->lock);
 	cdev->gadget = gadget;
 	set_gadget_data(gadget, cdev);

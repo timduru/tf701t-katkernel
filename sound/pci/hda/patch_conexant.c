@@ -4469,24 +4469,11 @@ static int patch_conexant_auto(struct hda_codec *codec)
 		break;
 	case 0x14f15051:
 		add_cx5051_fake_mutes(codec);
-		codec->pin_amp_workaround = 1;
 		apply_pin_fixup(codec, cxt5051_fixups, cxt_pincfg_tbl);
 		break;
 	default:
 		codec->pin_amp_workaround = 1;
 		apply_pin_fixup(codec, cxt5066_fixups, cxt_pincfg_tbl);
-	}
-
-	/* Show mute-led control only on HP laptops
-	 * This is a sort of white-list: on HP laptops, EAPD corresponds
-	 * only to the mute-LED without actualy amp function.  Meanwhile,
-	 * others may use EAPD really as an amp switch, so it might be
-	 * not good to expose it blindly.
-	 */
-	switch (codec->subsystem_id >> 16) {
-	case 0x103c:
-		spec->vmaster_mute_led = 1;
-		break;
 	}
 
 	err = cx_auto_search_adcs(codec);

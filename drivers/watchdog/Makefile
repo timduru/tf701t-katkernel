@@ -1,6 +1,7 @@
 #
 # Makefile for the WatchDog device drivers.
 #
+GCOV_PROFILE_tegra_wdt.o := y
 
 # The WatchDog Timer Driver Core.
 watchdog-objs	+= watchdog_core.o watchdog_dev.o
@@ -43,6 +44,10 @@ obj-$(CONFIG_S3C2410_WATCHDOG) += s3c2410_wdt.o
 obj-$(CONFIG_SA1100_WATCHDOG) += sa1100_wdt.o
 obj-$(CONFIG_DW_WATCHDOG) += dw_wdt.o
 obj-$(CONFIG_MPCORE_WATCHDOG) += mpcore_wdt.o
+CFLAGS_tegra_wdt.o	= -Werror
+ifeq ($(TARGET_BUILD_VARIANT),user)
+obj-$(CONFIG_TEGRA_WATCHDOG) += tegra_wdt.o
+endif
 obj-$(CONFIG_EP93XX_WATCHDOG) += ep93xx_wdt.o
 obj-$(CONFIG_PNX4008_WATCHDOG) += pnx4008_wdt.o
 obj-$(CONFIG_IOP_WATCHDOG) += iop_wdt.o
@@ -163,6 +168,7 @@ obj-$(CONFIG_WATCHDOG_CP1XXX)		+= cpwd.o
 obj-$(CONFIG_XEN_WDT) += xen_wdt.o
 
 # Architecture Independent
+obj-$(CONFIG_PALMAS_WATCHDOG) += palmas_wdt.o
 obj-$(CONFIG_WM831X_WATCHDOG) += wm831x_wdt.o
 obj-$(CONFIG_WM8350_WATCHDOG) += wm8350_wdt.o
 obj-$(CONFIG_MAX63XX_WATCHDOG) += max63xx_wdt.o

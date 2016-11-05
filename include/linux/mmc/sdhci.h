@@ -2,6 +2,7 @@
  *  linux/include/linux/mmc/sdhci.h - Secure Digital Host Controller Interface
  *
  *  Copyright (C) 2005-2008 Pierre Ossman, All Rights Reserved.
+ *  Copyright (c) 2013, NVIDIA CORPORATION. All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,7 +22,7 @@ struct sdhci_host {
 	/* Data set by hardware interface driver */
 	const char *hw_name;	/* Hardware bus name */
 
-	unsigned int quirks;	/* Deviations from spec. */
+	u32 quirks;	/* Deviations from spec. */
 
 /* Controller doesn't honor resets unless we touch the clock register */
 #define SDHCI_QUIRK_CLOCK_BEFORE_RESET			(1<<0)
@@ -91,6 +92,18 @@ struct sdhci_host {
 	unsigned int quirks2;	/* More deviations from spec. */
 
 #define SDHCI_QUIRK2_HOST_OFF_CARD_ON			(1<<0)
+/* Controller has incorrect preset values */
+#define SDHCI_QUIRK2_BROKEN_PRESET_VALUES		(1<<1)
+/* Controller cannot report the line status in present state register */
+#define SDHCI_QUIRK2_NON_STD_VOLTAGE_SWITCHING		(1<<2)
+/* Controller doesn't follow the standard frequency tuning procedure */
+#define SDHCI_QUIRK2_NON_STANDARD_TUNING		(1<<3)
+/* Controller doesn't calculate max_discard_to */
+#define SDHCI_QUIRK2_NO_CALC_MAX_DISCARD_TO		(1<<4)
+/* Controller needs a dummy write after INT_CLK_EN for clock to be stable */
+#define SDHCI_QUIRK2_INT_CLK_STABLE_REQ_DUMMY_REG_WRITE	(1<<5)
+/* sdio delayed clock gate */
+#define SDHCI_QUIRK2_DELAYED_CLK_GATE			(1<<6)
 
 	int irq;		/* Device IRQ */
 	void __iomem *ioaddr;	/* Mapped address */
@@ -154,8 +167,11 @@ struct sdhci_host {
 	struct tasklet_struct finish_tasklet;
 
 	struct timer_list timer;	/* Timer for timeouts */
+	unsigned int card_int_set;	/* card int status */
 
 	unsigned int caps;	/* Alternative capabilities */
+
+	struct dentry		*debugfs_root;
 
 	unsigned int            ocr_avail_sdio;	/* OCR bit masks */
 	unsigned int            ocr_avail_sd;
@@ -169,6 +185,18 @@ struct sdhci_host {
 #define SDHCI_TUNING_MODE_1	0
 	struct timer_list	tuning_timer;	/* Timer for tuning */
 
+	struct edp_client *sd_edp_client;
+	unsigned int edp_states[SD_EDP_NUM_STATES];
+	bool edp_support;
+
+	struct delayed_work	delayed_clk_gate_wrk;
+	bool			is_clk_on;
+
 	unsigned long private[0] ____cacheline_aligned;
+
 };
+
+/* callback is registered during init */
+void delayed_clk_gate_cb(struct work_struct *work);
+
 #endif /* LINUX_MMC_SDHCI_H */

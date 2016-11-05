@@ -44,12 +44,16 @@ static ssize_t __ref store_online(struct device *dev,
 	cpu_hotplug_driver_lock();
 	switch (buf[0]) {
 	case '0':
+		printk(KERN_INFO "%s : cpu_down(%u)+\n", __func__, cpu->dev.id);
 		ret = cpu_down(cpu->dev.id);
+		printk(KERN_INFO "%s : cpu_down(%u)- : ret = %d\n", __func__, cpu->dev.id, ret);
 		if (!ret)
 			kobject_uevent(&dev->kobj, KOBJ_OFFLINE);
 		break;
 	case '1':
+		printk(KERN_INFO "%s : cpu_up(%u)+\n", __func__, cpu->dev.id);
 		ret = cpu_up(cpu->dev.id);
+		printk(KERN_INFO "%s : cpu_up(%u)- : ret = %d\n", __func__, cpu->dev.id, ret);
 		if (!ret)
 			kobject_uevent(&dev->kobj, KOBJ_ONLINE);
 		break;

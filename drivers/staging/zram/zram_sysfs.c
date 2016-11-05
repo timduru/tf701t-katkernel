@@ -15,6 +15,7 @@
 #include <linux/device.h>
 #include <linux/genhd.h>
 #include <linux/mm.h>
+#include <linux/kernel.h>
 
 #include "zram_drv.h"
 
@@ -54,13 +55,12 @@ static ssize_t disksize_show(struct device *dev,
 static ssize_t disksize_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t len)
 {
-	int ret;
 	u64 disksize;
 	struct zram *zram = dev_to_zram(dev);
 
-	ret = kstrtoull(buf, 10, &disksize);
-	if (ret)
-		return ret;
+	disksize = memparse(buf, NULL);
+	if (!disksize)
+		return -EINVAL;
 
 	down_write(&zram->init_lock);
 	if (zram->init_done) {
@@ -71,6 +71,7 @@ static ssize_t disksize_store(struct device *dev,
 
 	zram->disksize = PAGE_ALIGN(disksize);
 	set_capacity(zram->disk, zram->disksize >> SECTOR_SHIFT);
+	zram_init_device(zram);
 	up_write(&zram->init_lock);
 
 	return len;
@@ -110,11 +111,7 @@ static ssize_t reset_store(struct device *dev,
 	if (bdev)
 		fsync_bdev(bdev);
 
-	down_write(&zram->init_lock);
-	if (zram->init_done)
-		__zram_reset_device(zram);
-	up_write(&zram->init_lock);
-
+	zram_reset_device(zram);
 	return len;
 }
 

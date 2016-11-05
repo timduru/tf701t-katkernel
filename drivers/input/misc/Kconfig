@@ -156,6 +156,15 @@ config INPUT_MC13783_PWRBUTTON
 	  To compile this driver as a module, choose M here: the module
 	  will be called mc13783-pwrbutton.
 
+config INPUT_MAX77665_HAPTIC
+	tristate "MAXIM MAX77665 haptic controller support"
+	depends on HAVE_PWM && MFD_MAX77665
+	select INPUT_FF_MEMLESS
+	help
+	  This option enables device driver support for the haptic controller
+	  on MAXIM MAX77665 chip. This driver supports ff-memless interface
+	  from input framework.
+
 config INPUT_MMA8450
 	tristate "MMA8450 - Freescale's 3-Axis, 8/12-bit Digital Accelerometer"
 	depends on I2C
@@ -278,6 +287,17 @@ config INPUT_ATI_REMOTE2
 
 	  To compile this driver as a module, choose M here: the module will be
 	  called ati_remote2.
+
+config INPUT_KEYCHORD
+	tristate "Key chord input driver support"
+	help
+	  Say Y here if you want to enable the key chord driver
+	  accessible at /dev/keychord.  This driver can be used
+	  for receiving notifications when client specified key
+	  combinations are pressed.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called keychord.
 
 config INPUT_KEYSPAN_REMOTE
 	tristate "Keyspan DMR USB remote control (EXPERIMENTAL)"
@@ -406,6 +426,11 @@ config INPUT_SGI_BTNS
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called sgi_btns.
+
+config INPUT_GPIO
+	tristate "GPIO driver support"
+	help
+	  Say Y here if you want to support gpio based keys, wheels etc...
 
 config HP_SDC_RTC
 	tristate "HP SDC Real Time Clock"
@@ -589,5 +614,31 @@ config INPUT_XEN_KBDDEV_FRONTEND
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called xen-kbdfront.
+
+config INPUT_ALPS_GPIO_SCROLLWHEEL
+	tristate "Alps GPIO Scrollwheel"
+	depends on GENERIC_GPIO
+	help
+	  This driver implements support for Alps SRBE
+          ScrollWheel connected to GPIO pins of various
+          CPUs (and some other chips).
+
+	  Say Y here if your device has ScrollWheel connected
+	  directly to such GPIO pins.  Your board-specific
+	  setup logic must also provide a platform device,
+	  with configuration data saying which GPIOs are used.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called alps_gpio_scrollwheel.
+
+config INPUT_CAPELLA_CM3218
+	tristate "CM3218 light sensor"
+	depends on I2C
+	help
+	  Say Y here to enable the CM3218 Ambient Light Sensor.
+
+source	"drivers/input/misc/compass/Kconfig"
+source	"drivers/input/misc/mpu/Kconfig"
+source	"drivers/input/misc/pressure/Kconfig"
 
 endif

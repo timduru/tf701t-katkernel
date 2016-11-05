@@ -1830,7 +1830,7 @@ __acquires(&gcwq->lock)
 	struct cpu_workqueue_struct *cwq = get_work_cwq(work);
 	struct global_cwq *gcwq = cwq->gcwq;
 	struct hlist_head *bwh = busy_worker_head(gcwq, work);
-	bool cpu_intensive = cwq->wq->flags & WQ_CPU_INTENSIVE;
+	bool cpu_intensive;
 	int work_color;
 	struct worker *collision;
 #ifdef CONFIG_LOCKDEP
@@ -1843,6 +1843,16 @@ __acquires(&gcwq->lock)
 	 */
 	struct lockdep_map lockdep_map = work->lockdep_map;
 #endif
+
+	if (!cwq || !cwq->wq)
+	{
+		printk("WARNING: process_one_work: %s is null, work->func =%pF\n", !cwq ? "cwq is NULL" : "cwq->wq is NULL" , work->func);
+		WARN_ON(1);
+		return;
+	}
+	else
+		cpu_intensive = cwq->wq->flags & WQ_CPU_INTENSIVE;
+
 	/*
 	 * A single work shouldn't be executed concurrently by
 	 * multiple workers on a single cpu.  Check whether anyone is

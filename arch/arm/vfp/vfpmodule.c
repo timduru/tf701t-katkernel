@@ -450,9 +450,15 @@ static int vfp_pm_suspend(void)
 	struct thread_info *ti = current_thread_info();
 	u32 fpexc = fmrx(FPEXC);
 
+	/* If lazy disable, re-enable the VFP ready for it to be saved */
+	if (vfp_current_hw_state[ti->cpu] != &ti->vfpstate) {
+		fpexc |= FPEXC_EN;
+		fmxr(FPEXC, fpexc);
+	}
+
 	/* if vfp is on, then save state for resumption */
 	if (fpexc & FPEXC_EN) {
-		printk(KERN_DEBUG "%s: saving vfp state\n", __func__);
+		//printk(KERN_DEBUG "%s: saving vfp state\n", __func__);
 		vfp_save_state(&ti->vfpstate, fpexc);
 
 		/* disable, just in case */
@@ -583,6 +589,12 @@ int vfp_preserve_user_clear_hwstate(struct user_vfp __user *ufp,
 	 * entry.
 	 */
 	hwstate->fpscr &= ~(FPSCR_LENGTH_MASK | FPSCR_STRIDE_MASK);
+
+	/*
+	 * Disable VFP in the hwstate so that we can detect if it gets
+	 * used.
+	 */
+	hwstate->fpexc &= ~FPEXC_EN;
 	return 0;
 }
 
@@ -595,8 +607,12 @@ int vfp_restore_user_hwstate(struct user_vfp __user *ufp,
 	unsigned long fpexc;
 	int err = 0;
 
-	/* Disable VFP to avoid corrupting the new thread state. */
-	vfp_flush_hwstate(thread);
+	/*
+	 * If VFP has been used, then disable it to avoid corrupting
+	 * the new thread state.
+	 */
+	if (hwstate->fpexc & FPEXC_EN)
+		vfp_flush_hwstate(thread);
 
 	/*
 	 * Copy the floating point registers. There can be unused

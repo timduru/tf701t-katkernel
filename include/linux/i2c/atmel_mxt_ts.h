@@ -15,6 +15,13 @@
 
 #include <linux/types.h>
 
+#define MXT224_I2C_ADDR1        0x4A
+#define MXT224_I2C_ADDR2        0x4B
+#define MXT1386_I2C_ADDR1       0x4C
+#define MXT1386_I2C_ADDR2       0x4D
+#define MXT1386_I2C_ADDR3       0x5A
+#define MXT1386_I2C_ADDR4       0x5B
+
 /* Orient */
 #define MXT_NORMAL		0x0
 #define MXT_DIAGONAL		0x1
@@ -25,20 +32,15 @@
 #define MXT_ROTATED_180		0x6
 #define MXT_DIAGONAL_COUNTER	0x7
 
+#define CFG_NAME_SIZE		64
+
 /* The platform data for the Atmel maXTouch touchscreen driver */
 struct mxt_platform_data {
-	const u8 *config;
-	size_t config_length;
-
-	unsigned int x_line;
-	unsigned int y_line;
-	unsigned int x_size;
-	unsigned int y_size;
-	unsigned int blen;
-	unsigned int threshold;
-	unsigned int voltage;
-	unsigned char orient;
 	unsigned long irqflags;
+	u8(*read_chg) (void);
+	const char *input_name;
+	char mxt_cfg_name[CFG_NAME_SIZE];
 };
 
 #endif /* __LINUX_ATMEL_MXT_TS_H */
+

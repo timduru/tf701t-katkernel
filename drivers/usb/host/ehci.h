@@ -117,8 +117,6 @@ struct ehci_hcd {			/* one per controller */
 			the change-suspend feature turned on */
 	unsigned long		suspended_ports;	/* which ports are
 			suspended */
-	unsigned long		resuming_ports;		/* which ports have
-			started to resume */
 
 	/* per-HC memory pools (could be per-bus, but ...) */
 	struct dma_pool		*qh_pool;	/* qh per active urb */
@@ -149,6 +147,11 @@ struct ehci_hcd {			/* one per controller */
 	unsigned		use_dummy_qh:1;	/* AMD Frame List table quirk*/
 	unsigned		has_synopsys_hc_bug:1; /* Synopsys HC */
 	unsigned		frame_index_bug:1; /* MosChip (AKA NetMos) */
+#ifdef CONFIG_USB_EHCI_TEGRA
+	unsigned		controller_resets_phy:1;
+	unsigned		controller_remote_wakeup:1;
+	unsigned		broken_hostpc_phcd:1;
+#endif
 
 	/* required for usb32 quirk */
 	#define OHCI_CTRL_HCFS          (3 << 6)
@@ -175,6 +178,7 @@ struct ehci_hcd {			/* one per controller */
 #ifdef DEBUG
 	struct dentry		*debug_dir;
 #endif
+
 	/*
 	 * OTG controllers and transceivers need software interaction
 	 */
@@ -762,6 +766,45 @@ static inline unsigned ehci_read_frame_index(struct ehci_hcd *ehci)
 	return ehci_readl(ehci, &ehci->regs->frame_index);
 }
 
+#endif
+
+/*
+ * Writing to dma coherent memory on ARM may be delayed via L2
+ * writing buffer, so introduce the helper which can flush L2 writing
+ * buffer into memory immediately, especially used to flush ehci
+ * descriptor to memory.
+ * */
+#ifdef	CONFIG_ARM_DMA_MEM_BUFFERABLE
+static inline void ehci_sync_mem(void)
+{
+	mb();
+}
+
+/*
+ * DMA coherent memory on ARM which features speculative prefetcher doesn't
+ * guarantee coherency, so introduce the helpers which can invalidate QH and
+ * QTD in L1/L2 cache. It enforces CPU reads from memory directly.
+ */
+static inline void ehci_sync_qh(struct ehci_hcd *ehci, struct ehci_qh *qh)
+{
+	dma_sync_single_for_cpu(ehci_to_hcd(ehci)->self.controller, qh->qh_dma,
+		sizeof(struct ehci_qh_hw), DMA_FROM_DEVICE);
+}
+static inline void ehci_sync_qtd(struct ehci_hcd *ehci, struct ehci_qtd *qtd)
+{
+	dma_sync_single_for_cpu(ehci_to_hcd(ehci)->self.controller,
+		qtd->qtd_dma, sizeof(struct ehci_qtd), DMA_FROM_DEVICE);
+}
+#else
+static inline void ehci_sync_mem(void)
+{
+}
+static inline void ehci_sync_qh(struct ehci_hcd *ehci, struct ehci_qh *qh)
+{
+}
+static inline void ehci_sync_qtd(struct ehci_hcd *ehci, struct ehci_qtd *qtd)
+{
+}
 #endif
 
 /*-------------------------------------------------------------------------*/

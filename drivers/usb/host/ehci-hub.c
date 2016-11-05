@@ -27,7 +27,6 @@
  */
 
 /*-------------------------------------------------------------------------*/
-#include <linux/usb/otg.h>
 
 #define	PORT_WAKE_BITS	(PORT_WKOC_E|PORT_WKDISC_E|PORT_WKCONN_E)
 
@@ -147,18 +146,24 @@ static __maybe_unused void ehci_adjust_port_wakeup_flags(struct ehci_hcd *ehci,
 
 	/* clear phy low-power mode before changing wakeup flags */
 	if (ehci->has_hostpc) {
-		port = HCS_N_PORTS(ehci->hcs_params);
-		while (port--) {
-			u32 __iomem	*hostpc_reg;
+#ifdef CONFIG_USB_EHCI_TEGRA
+		if (!ehci->broken_hostpc_phcd) {
+#endif
+			port = HCS_N_PORTS(ehci->hcs_params);
+			while (port--) {
+				u32 __iomem	*hostpc_reg;
 
-			hostpc_reg = (u32 __iomem *)((u8 *) ehci->regs
-					+ HOSTPC0 + 4 * port);
-			temp = ehci_readl(ehci, hostpc_reg);
-			ehci_writel(ehci, temp & ~HOSTPC_PHCD, hostpc_reg);
+				hostpc_reg = (u32 __iomem *)((u8 *) ehci->regs
+						+ HOSTPC0 + 4 * port);
+				temp = ehci_readl(ehci, hostpc_reg);
+				ehci_writel(ehci, temp & ~HOSTPC_PHCD, hostpc_reg);
+			}
+			spin_unlock_irqrestore(&ehci->lock, flags);
+			msleep(5);
+			spin_lock_irqsave(&ehci->lock, flags);
+#ifdef CONFIG_USB_EHCI_TEGRA
 		}
-		spin_unlock_irqrestore(&ehci->lock, flags);
-		msleep(5);
-		spin_lock_irqsave(&ehci->lock, flags);
+#endif
 	}
 
 	port = HCS_N_PORTS(ehci->hcs_params);
@@ -183,15 +188,21 @@ static __maybe_unused void ehci_adjust_port_wakeup_flags(struct ehci_hcd *ehci,
 
 	/* enter phy low-power mode again */
 	if (ehci->has_hostpc) {
-		port = HCS_N_PORTS(ehci->hcs_params);
-		while (port--) {
-			u32 __iomem	*hostpc_reg;
+#ifdef CONFIG_USB_EHCI_TEGRA
+		if (!ehci->broken_hostpc_phcd) {
+#endif
+			port = HCS_N_PORTS(ehci->hcs_params);
+			while (port--) {
+				u32 __iomem	*hostpc_reg;
 
-			hostpc_reg = (u32 __iomem *)((u8 *) ehci->regs
-					+ HOSTPC0 + 4 * port);
-			temp = ehci_readl(ehci, hostpc_reg);
-			ehci_writel(ehci, temp | HOSTPC_PHCD, hostpc_reg);
+				hostpc_reg = (u32 __iomem *)((u8 *) ehci->regs
+						+ HOSTPC0 + 4 * port);
+				temp = ehci_readl(ehci, hostpc_reg);
+				ehci_writel(ehci, temp | HOSTPC_PHCD, hostpc_reg);
+			}
+#ifdef CONFIG_USB_EHCI_TEGRA
 		}
+#endif
 	}
 
 	/* Does the root hub have a port wakeup pending? */
@@ -223,10 +234,15 @@ static int ehci_bus_suspend (struct usb_hcd *hcd)
 	 * remote wakeup, we must fail the suspend.
 	 */
 	if (hcd->self.root_hub->do_remote_wakeup) {
-		if (ehci->resuming_ports) {
-			spin_unlock_irq(&ehci->lock);
-			ehci_dbg(ehci, "suspend failed because a port is resuming\n");
-			return -EBUSY;
+		port = HCS_N_PORTS(ehci->hcs_params);
+		while (port--) {
+			if (ehci->reset_done[port] != 0) {
+				spin_unlock_irq(&ehci->lock);
+				ehci_dbg(ehci, "suspend failed because "
+						"port %d is resuming\n",
+						port + 1);
+				return -EBUSY;
+			}
 		}
 	}
 
@@ -278,8 +294,8 @@ static int ehci_bus_suspend (struct usb_hcd *hcd)
 			changed = 1;
 		}
 	}
-
-	if (changed && ehci->has_hostpc) {
+#ifdef CONFIG_ARCH_TEGRA_2x_SOC
+	if (changed && ehci->has_hostpc && !ehci->broken_hostpc_phcd) {
 		spin_unlock_irq(&ehci->lock);
 		msleep(5);	/* 5 ms for HCD to enter low-power mode */
 		spin_lock_irq(&ehci->lock);
@@ -299,7 +315,7 @@ static int ehci_bus_suspend (struct usb_hcd *hcd)
 					"succeeded" : "failed");
 		}
 	}
-
+#endif
 	/* Apparently some devices need a >= 1-uframe delay here */
 	if (ehci->bus_suspended)
 		udelay(150);
@@ -385,21 +401,27 @@ static int ehci_bus_resume (struct usb_hcd *hcd)
 
 	/* clear phy low-power mode before resume */
 	if (ehci->bus_suspended && ehci->has_hostpc) {
-		i = HCS_N_PORTS(ehci->hcs_params);
-		while (i--) {
-			if (test_bit(i, &ehci->bus_suspended)) {
-				u32 __iomem	*hostpc_reg;
+#ifdef CONFIG_USB_EHCI_TEGRA
+		if (!ehci->broken_hostpc_phcd) {
+#endif
+			i = HCS_N_PORTS(ehci->hcs_params);
+			while (i--) {
+				if (test_bit(i, &ehci->bus_suspended)) {
+					u32 __iomem	*hostpc_reg;
 
-				hostpc_reg = (u32 __iomem *)((u8 *) ehci->regs
-						+ HOSTPC0 + 4 * i);
-				temp = ehci_readl(ehci, hostpc_reg);
-				ehci_writel(ehci, temp & ~HOSTPC_PHCD,
-						hostpc_reg);
+					hostpc_reg = (u32 __iomem *)((u8 *) ehci->regs
+							+ HOSTPC0 + 4 * i);
+					temp = ehci_readl(ehci, hostpc_reg);
+					ehci_writel(ehci, temp & ~HOSTPC_PHCD,
+							hostpc_reg);
+				}
 			}
+			spin_unlock_irq(&ehci->lock);
+			msleep(5);
+			spin_lock_irq(&ehci->lock);
+#ifdef CONFIG_USB_EHCI_TEGRA
 		}
-		spin_unlock_irq(&ehci->lock);
-		msleep(5);
-		spin_lock_irq(&ehci->lock);
+#endif
 	}
 
 	/* manually resume the ports we suspended during bus_suspend() */
@@ -549,11 +571,15 @@ static int
 ehci_hub_status_data (struct usb_hcd *hcd, char *buf)
 {
 	struct ehci_hcd	*ehci = hcd_to_ehci (hcd);
-	u32		temp, status;
+	u32		temp, status = 0;
 	u32		mask;
 	int		ports, i, retval = 1;
 	unsigned long	flags;
 	u32		ppcd = 0;
+
+	/* if !USB_SUSPEND, root hub timers won't get shut down ... */
+	if (ehci->rh_state != EHCI_RH_RUNNING)
+		return 0;
 
 	/* init status to no-changes */
 	buf [0] = 0;
@@ -562,11 +588,6 @@ ehci_hub_status_data (struct usb_hcd *hcd, char *buf)
 		buf [1] = 0;
 		retval++;
 	}
-
-	/* Inform the core about resumes-in-progress by returning
-	 * a non-zero value even if there are no status changes.
-	 */
-	status = ehci->resuming_ports;
 
 	/* Some boards (mostly VIA?) report bogus overcurrent indications,
 	 * causing massive log spam unless we completely ignore them.  It
@@ -612,10 +633,6 @@ ehci_hub_status_data (struct usb_hcd *hcd, char *buf)
 			status = STS_PCD;
 		}
 	}
-
-	/* If a resume is in progress, make sure it can finish */
-	if (ehci->resuming_ports)
-		mod_timer(&hcd->rh_timer, jiffies + msecs_to_jiffies(25));
 
 	spin_unlock_irqrestore (&ehci->lock, flags);
 	return status ? retval : 0;
@@ -724,20 +741,17 @@ static int ehci_hub_control (
 				goto error;
 			if (ehci->no_selective_suspend)
 				break;
-#ifdef CONFIG_USB_OTG
-			if ((hcd->self.otg_port == (wIndex + 1))
-			    && hcd->self.b_hnp_enable) {
-				otg_start_hnp(ehci->transceiver->otg);
-				break;
-			}
-#endif
 			if (!(temp & PORT_SUSPEND))
 				break;
 			if ((temp & PORT_PE) == 0)
 				goto error;
 
 			/* clear phy low-power mode before resume */
+#ifdef CONFIG_USB_EHCI_TEGRA
+			if (hostpc_reg && !ehci->broken_hostpc_phcd) {
+#else
 			if (hostpc_reg) {
+#endif
 				temp1 = ehci_readl(ehci, hostpc_reg);
 				ehci_writel(ehci, temp1 & ~HOSTPC_PHCD,
 						hostpc_reg);
@@ -846,7 +860,6 @@ static int ehci_hub_control (
 				ehci_writel(ehci,
 					temp & ~(PORT_RWC_BITS | PORT_RESUME),
 					status_reg);
-				clear_bit(wIndex, &ehci->resuming_ports);
 				retval = handshake(ehci, status_reg,
 					   PORT_RESUME, 0, 2000 /* 2msec */);
 				if (retval != 0) {
@@ -865,7 +878,6 @@ static int ehci_hub_control (
 					ehci->reset_done[wIndex])) {
 			status |= USB_PORT_STAT_C_RESET << 16;
 			ehci->reset_done [wIndex] = 0;
-			clear_bit(wIndex, &ehci->resuming_ports);
 
 			/* force reset to complete */
 			ehci_writel(ehci, temp & ~(PORT_RWC_BITS | PORT_RESET),
@@ -886,10 +898,8 @@ static int ehci_hub_control (
 					ehci_readl(ehci, status_reg));
 		}
 
-		if (!(temp & (PORT_RESUME|PORT_RESET))) {
+		if (!(temp & (PORT_RESUME|PORT_RESET)))
 			ehci->reset_done[wIndex] = 0;
-			clear_bit(wIndex, &ehci->resuming_ports);
-		}
 
 		/* transfer dedicated ports to the companion hc */
 		if ((temp & PORT_CONNECT) &&
@@ -924,7 +934,6 @@ static int ehci_hub_control (
 			status |= USB_PORT_STAT_SUSPEND;
 		} else if (test_bit(wIndex, &ehci->suspended_ports)) {
 			clear_bit(wIndex, &ehci->suspended_ports);
-			clear_bit(wIndex, &ehci->resuming_ports);
 			ehci->reset_done[wIndex] = 0;
 			if (temp & PORT_PE)
 				set_bit(wIndex, &ehci->port_c_suspend);
@@ -990,7 +999,11 @@ static int ehci_hub_control (
 			temp &= ~PORT_WKCONN_E;
 			temp |= PORT_WKDISC_E | PORT_WKOC_E;
 			ehci_writel(ehci, temp | PORT_SUSPEND, status_reg);
+#ifdef CONFIG_USB_EHCI_TEGRA
+			if (hostpc_reg && !ehci->broken_hostpc_phcd) {
+#else
 			if (hostpc_reg) {
+#endif
 				spin_unlock_irqrestore(&ehci->lock, flags);
 				msleep(5);/* 5ms for HCD enter low pwr mode */
 				spin_lock_irqsave(&ehci->lock, flags);

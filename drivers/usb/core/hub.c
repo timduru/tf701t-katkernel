@@ -28,6 +28,7 @@
 
 #include <asm/uaccess.h>
 #include <asm/byteorder.h>
+#include <asm/mach-types.h>
 
 #include "usb.h"
 
@@ -38,6 +39,7 @@
 #endif
 #endif
 
+extern asusdec_touchpad_reinit(void);
 struct usb_hub {
 	struct device		*intfdev;	/* the "interface" device */
 	struct usb_device	*hdev;
@@ -3082,6 +3084,11 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 	enum usb_device_speed	oldspeed = udev->speed;
 	const char		*speed;
 	int			devnum = udev->devnum;
+
+	if (machine_is_mozart()) {
+		printk(KERN_INFO "%s : call touchpad re-init\n", __func__);
+		asusdec_touchpad_reinit();
+	}
 
 	/* root hub ports have a slightly longer reset period
 	 * (from USB 2.0 spec, section 7.1.7.5)

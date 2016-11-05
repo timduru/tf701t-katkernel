@@ -686,6 +686,8 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 		case 0x06b: map_key_clear(KEY_BLUE);		break;
 		case 0x06c: map_key_clear(KEY_YELLOW);		break;
 		case 0x06d: map_key_clear(KEY_ZOOM);		break;
+		case 0x06f: map_key_clear(KEY_BRIGHTNESSUP);	break;
+		case 0x070: map_key_clear(KEY_BRIGHTNESSDOWN);	break;
 
 		case 0x082: map_key_clear(KEY_VIDEO_NEXT);	break;
 		case 0x083: map_key_clear(KEY_LAST);		break;
@@ -831,7 +833,14 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 		break;
 
 	case HID_UP_MSVENDOR:
-		goto ignore;
+		switch (usage->hid & HID_USAGE) {
+		case 0x0f1: map_key_clear(KEY_WLAN);	break;
+		case 0x0f2: map_key_clear(KEY_BRIGHTNESSDOWN);	break;
+		case 0x0f3: map_key_clear(KEY_BRIGHTNESSUP);	break;
+		case 0x0fc: map_key_clear(KEY_MODE);	break;
+		default: goto ignore;
+		}
+		break;
 
 	case HID_UP_CUSTOM: /* Reported on Logitech and Apple USB keyboards */
 		set_bit(EV_REP, input->evbit);
@@ -1212,6 +1221,9 @@ int hidinput_connect(struct hid_device *hid, unsigned int force)
 				 * UGCI) cram a lot of unrelated inputs into the
 				 * same interface. */
 				hidinput->report = report;
+				if (hid->driver->input_register &&
+						hid->driver->input_register(hid, hidinput))
+					goto out_cleanup;
 				if (input_register_device(hidinput->input))
 					goto out_cleanup;
 				hidinput = NULL;
@@ -1225,6 +1237,10 @@ int hidinput_connect(struct hid_device *hid, unsigned int force)
 			goto out_cleanup;
 		goto out_unwind;
 	}
+
+	if (hidinput && hid->driver->input_register &&
+			hid->driver->input_register(hid, hidinput))
+		goto out_cleanup;
 
 	if (hidinput && input_register_device(hidinput->input))
 		goto out_cleanup;

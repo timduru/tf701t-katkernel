@@ -122,7 +122,7 @@
 	.long	PTE_CACHEABLE					@ L_PTE_MT_WRITETHROUGH
 	.long	PTE_CACHEABLE | PTE_BUFFERABLE			@ L_PTE_MT_WRITEBACK
 	.long	PTE_BUFFERABLE					@ L_PTE_MT_DEV_SHARED
-	.long	0x00						@ unused
+	.long	PTE_EXT_TEX(4) | PTE_BUFFERABLE			@ L_PTE_MT_INNER_WB
 	.long	0x00						@ L_PTE_MT_MINICACHE (not present)
 	.long	PTE_EXT_TEX(1) | PTE_CACHEABLE | PTE_BUFFERABLE	@ L_PTE_MT_WRITEALLOC
 	.long	0x00						@ unused
@@ -299,6 +299,7 @@ ENTRY(\name\()_processor_functions)
 ENTRY(\name\()_cache_fns)
 	.long	\name\()_flush_icache_all
 	.long	\name\()_flush_kern_cache_all
+	.long   \name\()_flush_kern_cache_louis
 	.long	\name\()_flush_user_cache_all
 	.long	\name\()_flush_user_cache_range
 	.long	\name\()_coherent_kern_range

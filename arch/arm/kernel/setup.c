@@ -45,6 +45,8 @@
 #include <asm/cacheflush.h>
 #include <asm/cachetype.h>
 #include <asm/tlbflush.h>
+#include <asm/system.h>
+#include <asm/soc.h>
 
 #include <asm/prom.h>
 #include <asm/mach/arch.h>
@@ -81,6 +83,7 @@ __setup("fpe=", fpe_setup);
 extern void paging_init(struct machine_desc *desc);
 extern void sanity_check_meminfo(void);
 extern void reboot_setup(char *str);
+extern void setup_dma_zone(struct machine_desc *desc);
 
 unsigned int processor_id;
 EXPORT_SYMBOL(processor_id);
@@ -143,6 +146,7 @@ static const char *cpu_name;
 static const char *machine_name;
 static char __initdata cmd_line[COMMAND_LINE_SIZE];
 struct machine_desc *machine_desc __initdata;
+static const struct arm_soc_desc *soc_desc __initdata;
 
 static char default_command_line[COMMAND_LINE_SIZE] __initdata = CONFIG_CMDLINE;
 static union { char c[4]; unsigned long l; } endian_test __initdata = { { 'l', '?', '?', 'b' } };
@@ -551,6 +555,31 @@ int __init arm_add_memory(phys_addr_t start, unsigned long size)
 }
 
 /*
+ * In factory test mode, factory_mode is set as 2.
+ * In normal mode, factory_mode remains 0.
+ */
+
+unsigned int factory_mode = 0;
+EXPORT_SYMBOL(factory_mode);
+static int __init check_factory_mode(char *p)
+{
+	char str[]="factory2";
+	char *s1 = str;
+	char *s2 = p;
+
+	for (; (*s1 == *s2) && (*s1 != NULL); ++s1, ++s2);
+
+	if (*s1 == 0){
+		factory_mode = 2;
+	}
+
+	printk("factory_mode = %d\n", factory_mode);
+	return 0;
+}
+early_param("androidboot.mode", check_factory_mode);
+
+
+/*
  * Pick out the memory size.  We look for mem=size@start,
  * where start and size are "size[KkMm]"
  */
@@ -670,6 +699,29 @@ static int __init parse_tag_mem32(const struct tag *tag)
 }
 
 __tagtable(ATAG_MEM, parse_tag_mem32);
+
+static int __init parse_tag_mem64(const struct tag *tag)
+{
+	/* We only use 32-bits for the size. */
+	unsigned long size;
+	phys_addr_t start, end;
+
+	start = tag->u.mem64.start;
+	size = tag->u.mem64.size;
+	end = start + size;
+
+	/* Ensure that the memory region is in range. */
+	if (end & ~PHYS_MASK)
+		pr_warning("Ignoring out-of-range mem64 tag (%.8llx-%.8llx)\n",
+			   (unsigned long long)start,
+			   (unsigned long long)end - 1);
+	else
+		arm_add_memory(start, size);
+
+	return 0;
+}
+
+__tagtable(ATAG_MEM64, parse_tag_mem64);
 
 #if defined(CONFIG_VGA_CONSOLE) || defined(CONFIG_DUMMY_CONSOLE)
 struct screen_info screen_info = {
@@ -938,13 +990,15 @@ void __init setup_arch(char **cmdline_p)
 		mdesc = setup_machine_tags(machine_arch_type);
 	machine_desc = mdesc;
 	machine_name = mdesc->name;
+	if (mdesc->soc) {
+		soc_desc = mdesc->soc;
+		pr_info("SoC: %s\n", soc_desc->name);
+		soc_smp_ops_register(soc_desc->smp_init_ops, soc_desc->smp_ops);
+	} else
+		soc_desc = NULL;
 
-#ifdef CONFIG_ZONE_DMA
-	if (mdesc->dma_zone_size) {
-		extern unsigned long arm_dma_zone_size;
-		arm_dma_zone_size = mdesc->dma_zone_size;
-	}
-#endif
+	setup_dma_zone(mdesc);
+
 	if (mdesc->restart_mode)
 		reboot_setup(&mdesc->restart_mode);
 
@@ -1054,7 +1108,11 @@ static int c_show(struct seq_file *m, void *v)
 		   cpu_name, read_cpuid_id() & 15, elf_platform);
 
 #if defined(CONFIG_SMP)
+# if defined(CONFIG_REPORT_PRESENT_CPUS)
+	for_each_present_cpu(i) {
+# else
 	for_each_online_cpu(i) {
+# endif
 		/*
 		 * glibc reads /proc/cpuinfo to determine the number of
 		 * online processors, looking for lines beginning with

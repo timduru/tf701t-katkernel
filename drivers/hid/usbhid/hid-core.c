@@ -44,6 +44,8 @@
 #define DRIVER_DESC "USB HID core driver"
 #define DRIVER_LICENSE "GPL"
 
+extern u8 mouse_dock_enable_flag;
+
 /*
  * Module parameters.
  */
@@ -1340,6 +1342,8 @@ static int usbhid_probe(struct usb_interface *intf, const struct usb_device_id *
 		goto err_free;
 	}
 
+	mouse_dock_enable_flag = mouse_dock_enable_flag | 0x2;
+
 	return 0;
 err_free:
 	kfree(usbhid);
@@ -1359,6 +1363,7 @@ static void usbhid_disconnect(struct usb_interface *intf)
 	usbhid = hid->driver_data;
 	hid_destroy_device(hid);
 	kfree(usbhid);
+	mouse_dock_enable_flag = mouse_dock_enable_flag & 0xD;
 }
 
 static void hid_cancel_delayed_stuff(struct usbhid_device *usbhid)

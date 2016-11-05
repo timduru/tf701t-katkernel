@@ -60,12 +60,17 @@ config VIDEOBUF2_VMALLOC
 	select VIDEOBUF2_MEMOPS
 	tristate
 
-
 config VIDEOBUF2_DMA_SG
 	#depends on HAS_DMA
 	select VIDEOBUF2_CORE
 	select VIDEOBUF2_MEMOPS
 	tristate
+
+config VIDEOBUF2_DMA_NVMAP
+	select VIDEOBUF2_CORE
+	select VIDEOBUF2_MEMOPS
+	tristate
+
 #
 # Multimedia Video device configuration
 #
@@ -883,6 +888,8 @@ source "drivers/media/video/davinci/Kconfig"
 
 source "drivers/media/video/omap/Kconfig"
 
+source "drivers/media/video/tegra/Kconfig"
+
 source "drivers/media/video/blackfin/Kconfig"
 
 config VIDEO_SH_VOU
@@ -1099,6 +1106,13 @@ config VIDEO_SH_MOBILE_CEU
 	select VIDEOBUF2_DMA_CONTIG
 	---help---
 	  This is a v4l2 driver for the SuperH Mobile CEU Interface
+
+config VIDEO_TEGRA
+	tristate "Tegra soc_camera host driver"
+	depends on VIDEO_DEV && ARCH_TEGRA && SOC_CAMERA && HAS_DMA && HAVE_CLK
+	select VIDEOBUF2_DMA_NVMAP
+	---help---
+	  This is a v4l2 driver for the Tegra camera interface
 
 config VIDEO_OMAP1
 	tristate "OMAP1 Camera Interface driver"

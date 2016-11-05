@@ -41,6 +41,7 @@
 #include "clock.h"
 #include "devices.h"
 #include "gpio-names.h"
+#include "common.h"
 
 static struct plat_serial8250_port debug_uart_platform_data[] = {
 	{
@@ -247,7 +248,7 @@ static void __init tegra_seaboard_init(void)
 	debug_uart_platform_data[0].membase = IO_ADDRESS(TEGRA_UARTD_BASE);
 	debug_uart_platform_data[0].mapbase = TEGRA_UARTD_BASE;
 	debug_uart_platform_data[0].irq = INT_UARTD;
-
+	tegra_soc_device_init("seaboard");
 	seaboard_common_init();
 
 	seaboard_i2c_init();
@@ -261,8 +262,7 @@ static void __init tegra_kaen_init(void)
 	debug_uart_platform_data[0].irq = INT_UARTB;
 
 	seaboard_audio_pdata.gpio_hp_mute = TEGRA_GPIO_KAEN_HP_MUTE;
-	tegra_gpio_enable(TEGRA_GPIO_KAEN_HP_MUTE);
-
+	tegra_soc_device_init("kaen");
 	seaboard_common_init();
 
 	seaboard_i2c_init();
@@ -274,15 +274,15 @@ static void __init tegra_wario_init(void)
 	debug_uart_platform_data[0].membase = IO_ADDRESS(TEGRA_UARTB_BASE);
 	debug_uart_platform_data[0].mapbase = TEGRA_UARTB_BASE;
 	debug_uart_platform_data[0].irq = INT_UARTB;
-
+	tegra_soc_device_init("wario");
 	seaboard_common_init();
 
 	seaboard_i2c_init();
 }
 
-
 MACHINE_START(SEABOARD, "seaboard")
 	.atag_offset    = 0x100,
+	.soc		= &tegra_soc_desc,
 	.map_io         = tegra_map_common_io,
 	.init_early     = tegra20_init_early,
 	.init_irq       = tegra_init_irq,
@@ -294,6 +294,7 @@ MACHINE_END
 
 MACHINE_START(KAEN, "kaen")
 	.atag_offset    = 0x100,
+	.soc		= &tegra_soc_desc,
 	.map_io         = tegra_map_common_io,
 	.init_early     = tegra20_init_early,
 	.init_irq       = tegra_init_irq,
@@ -305,6 +306,7 @@ MACHINE_END
 
 MACHINE_START(WARIO, "wario")
 	.atag_offset    = 0x100,
+	.soc		= &tegra_soc_desc,
 	.map_io         = tegra_map_common_io,
 	.init_early     = tegra20_init_early,
 	.init_irq       = tegra_init_irq,

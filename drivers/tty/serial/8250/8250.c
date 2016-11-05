@@ -15,10 +15,11 @@
  *  mapbase is the physical address of the IO port.
  *  membase is an 'ioremapped' cookie.
  */
-
+/*
 #if defined(CONFIG_SERIAL_8250_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
 #define SUPPORT_SYSRQ
 #endif
+*/
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -273,7 +274,8 @@ static const struct serial8250_config uart_config[] = {
 		.tx_loadsz	= 8,
 		.fcr		= UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_01 |
 				  UART_FCR_T_TRIG_01,
-		.flags		= UART_CAP_FIFO | UART_CAP_RTOIE,
+		.flags		= UART_CAP_FIFO | UART_CAP_RTOIE |
+				  UART_CAP_HW_CTSRTS,
 	},
 	[PORT_XR17D15X] = {
 		.name		= "XR17D15X",
@@ -843,7 +845,7 @@ static int broken_efr(struct uart_8250_port *up)
 	/*
 	 * Exar ST16C2550 "A2" devices incorrectly detect as
 	 * having an EFR, and report an ID of 0x0201.  See
-	 * http://linux.derkeiler.com/Mailing-Lists/Kernel/2004-11/4812.html 
+	 * http://linux.derkeiler.com/Mailing-Lists/Kernel/2004-11/4812.html
 	 */
 	if (autoconfig_read_divisor_id(up) == 0x0201 && size_fifo(up) == 16)
 		return 1;
@@ -911,6 +913,7 @@ static void autoconfig_16550a(struct uart_8250_port *up)
 		return;
 	}
 
+#ifdef CONFIG_HAS_NS_SUPER_IO_CHIP
 	/*
 	 * Check for a National Semiconductor SuperIO chip.
 	 * Attempt to switch to bank 2, read the value of the LOOP bit
@@ -950,6 +953,7 @@ static void autoconfig_16550a(struct uart_8250_port *up)
 			return;
 		}
 	}
+#endif
 
 	/*
 	 * No EFR.  Try to detect a TI16750, which only sets bit 5 of
@@ -1507,6 +1511,7 @@ unsigned int serial8250_modem_status(struct uart_8250_port *up)
 }
 EXPORT_SYMBOL_GPL(serial8250_modem_status);
 
+#define NOINTR_COUNTER 1000
 /*
  * This handles the interrupt from one port.
  */
@@ -1516,9 +1521,29 @@ int serial8250_handle_irq(struct uart_port *port, unsigned int iir)
 	unsigned long flags;
 	struct uart_8250_port *up =
 		container_of(port, struct uart_8250_port, port);
+#ifdef CONFIG_ARCH_TEGRA
+	static int tegra_nointr_count = 0;
 
+	if ((iir & UART_IIR_NO_INT)) {
+		tegra_nointr_count++;
+		if (tegra_nointr_count > NOINTR_COUNTER) {
+			up->mcr = serial_port_in(port, UART_MCR)
+					| UART_MCR_LOOP;
+			serial_port_out(port, UART_MCR, up->mcr);
+			up->ier = serial_port_in(port, UART_IER)
+					| UART_IER_MSI;
+			serial_port_out(port, UART_IER, up->ier);
+			up->mcr |= UART_MCR_RTS;
+			serial_port_out(port, UART_MCR, up->mcr);
+		}
+
+		return 0;
+	} else
+		tegra_nointr_count = 0;
+#else
 	if (iir & UART_IIR_NO_INT)
 		return 0;
+#endif
 
 	spin_lock_irqsave(&port->lock, flags);
 
@@ -1526,9 +1551,26 @@ int serial8250_handle_irq(struct uart_port *port, unsigned int iir)
 
 	DEBUG_INTR("status = %x...", status);
 
+#ifdef CONFIG_ARCH_TEGRA
+	if ((iir & 0xf) == UART_IIR_MSI) {
+		if (up->mcr & UART_MCR_LOOP) {
+			serial_port_out(port, UART_TX, 0xff);
+			up->mcr &= ~UART_MCR_LOOP;
+			serial_port_out(port, UART_MCR, up->mcr);
+			up->ier &= ~UART_IER_MSI;
+			serial_port_out(port, UART_IER, up->ier);
+			up->mcr &= ~UART_MCR_RTS;
+			serial_port_out(port, UART_MCR, up->mcr);
+		}
+		serial8250_modem_status(up);
+	}
+#else
+	serial8250_modem_status(up);
+#endif
+
 	if (status & (UART_LSR_DR | UART_LSR_BI))
 		status = serial8250_rx_chars(up, status);
-	serial8250_modem_status(up);
+
 	if (status & UART_LSR_THRE)
 		serial8250_tx_chars(up);
 
@@ -1563,6 +1605,7 @@ static irqreturn_t serial8250_interrupt(int irq, void *dev_id)
 	struct irq_info *i = dev_id;
 	struct list_head *l, *end = NULL;
 	int pass_counter = 0, handled = 0;
+	u8 iir, tegra_handled;
 
 	DEBUG_INTR("serial8250_interrupt(%d)...", irq);
 
@@ -1575,6 +1618,12 @@ static irqreturn_t serial8250_interrupt(int irq, void *dev_id)
 
 		up = list_entry(l, struct uart_8250_port, list);
 		port = &up->port;
+		iir = serial_port_in(port, UART_IIR);
+
+		if (iir & UART_IIR_NO_INT && port->type == PORT_TEGRA)
+			tegra_handled = 1;
+		else
+			tegra_handled = 0;
 
 		if (port->handle_irq(port)) {
 			handled = 1;
@@ -1595,6 +1644,8 @@ static irqreturn_t serial8250_interrupt(int irq, void *dev_id)
 	spin_unlock(&i->lock);
 
 	DEBUG_INTR("end.\n");
+	if (tegra_handled)
+		handled = 1;
 
 	return IRQ_RETVAL(handled);
 }
@@ -1805,8 +1856,13 @@ static void serial8250_set_mctrl(struct uart_port *port, unsigned int mctrl)
 		container_of(port, struct uart_8250_port, port);
 	unsigned char mcr = 0;
 
-	if (mctrl & TIOCM_RTS)
-		mcr |= UART_MCR_RTS;
+	if (up->port.type == PORT_TEGRA) {
+		if (mctrl & TIOCM_RTS)
+			mcr |= UART_MCR_HW_RTS;
+	} else {
+		if (mctrl & TIOCM_RTS)
+			mcr |= UART_MCR_RTS;
+	}
 	if (mctrl & TIOCM_DTR)
 		mcr |= UART_MCR_DTR;
 	if (mctrl & TIOCM_OUT1)
@@ -2371,6 +2427,19 @@ serial8250_do_set_termios(struct uart_port *port, struct ktermios *termios,
 			serial_port_out(port, UART_EFR, efr);
 	}
 
+	if (up->capabilities & UART_CAP_HW_CTSRTS) {
+		unsigned char mcr = serial_port_in(port, UART_MCR);
+		/*
+		 * TEGRA UART core support the auto control of the RTS and CTS
+		 * flow control.
+		 */
+		if (termios->c_cflag & CRTSCTS)
+			mcr |= UART_MCR_HW_CTS;
+		else
+			mcr &= ~UART_MCR_HW_CTS;
+		serial_port_out(port, UART_MCR, mcr);
+	}
+
 #ifdef CONFIG_ARCH_OMAP
 	/* Workaround to enable 115200 baud on OMAP1510 internal ports */
 	if (cpu_is_omap1510() && is_omap_port(up)) {
@@ -2624,6 +2693,9 @@ static void serial8250_config_port(struct uart_port *port, int flags)
 
 	/* if access method is AU, it is a 16550 with a quirk */
 	if (port->type == PORT_16550A && port->iotype == UPIO_AU)
+		up->bugs |= UART_BUG_NOMSR;
+
+	if (port->type == PORT_TEGRA)
 		up->bugs |= UART_BUG_NOMSR;
 
 	if (port->type != PORT_UNKNOWN && flags & UART_CONFIG_IRQ)

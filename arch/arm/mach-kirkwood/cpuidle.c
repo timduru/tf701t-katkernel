@@ -27,7 +27,6 @@
 
 /* Actual code that puts the SoC in different idle states */
 static int kirkwood_enter_idle(struct cpuidle_device *dev,
-				struct cpuidle_driver *drv,
 			       int index)
 {
 	writel(0x7, DDR_OPERATION_BASE);
@@ -62,7 +61,6 @@ static int kirkwood_init_cpuidle(void)
 	device = &per_cpu(kirkwood_cpuidle_device, smp_processor_id());
 	device->state_count = KIRKWOOD_MAX_STATES;
 
-	cpuidle_register_driver(&kirkwood_idle_driver);
 	if (cpuidle_register_device(device)) {
 		printk(KERN_ERR "kirkwood_init_cpuidle: Failed registering\n");
 		return -EIO;

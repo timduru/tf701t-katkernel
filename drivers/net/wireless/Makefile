@@ -11,7 +11,7 @@ obj-$(CONFIG_AIRO)		+= airo.o
 obj-$(CONFIG_AIRO_CS)		+= airo_cs.o airo.o
 
 obj-$(CONFIG_ATMEL)             += atmel.o
-obj-$(CONFIG_PCI_ATMEL)         += atmel_pci.o 
+obj-$(CONFIG_PCI_ATMEL)         += atmel_pci.o
 obj-$(CONFIG_PCMCIA_ATMEL)      += atmel_cs.o
 
 obj-$(CONFIG_AT76C50X_USB)      += at76c50x-usb.o
@@ -59,5 +59,16 @@ obj-$(CONFIG_IWM)	+= iwmc3200wifi/
 
 obj-$(CONFIG_MWIFIEX)	+= mwifiex/
 
+obj-$(CONFIG_BCMDHD)	+= bcmdhd/
+
+obj-$(CONFIG_BCM43XX)   += bcm43xx/
+
+obj-$(CONFIG_BCM43241)	+= bcm43241/
+
+obj-$(CONFIG_BCM43341)	+= bcm43341/
+
 obj-$(CONFIG_BRCMFMAC)	+= brcm80211/
 obj-$(CONFIG_BRCMSMAC)	+= brcm80211/
+obj-$(CONFIG_SD8797)	+= sd8797/
+obj-$(CONFIG_SD8897)	+= sd8897/
+

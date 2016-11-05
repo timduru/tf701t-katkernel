@@ -53,6 +53,15 @@ comment "Watchdog Device Drivers"
 
 # Architecture Independent
 
+config PALMAS_WATCHDOG
+	tristate "PALMAS watchdog"
+	depends on MFD_PALMAS
+	select WATCHDOG_CORE
+	help
+	  Support for the watchdog in the TI Palmas PMIC PMICs.  When
+	  the watchdog triggers the system will be reset/Off based on
+	  configuration.
+
 config SOFT_WATCHDOG
 	tristate "Software watchdog"
 	select WATCHDOG_CORE
@@ -215,6 +224,23 @@ config MPCORE_WATCHDOG
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called mpcore_wdt.
+
+config TEGRA_WATCHDOG
+	tristate "Tegra watchdog"
+	depends on ARCH_TEGRA
+	help
+	  Say Y here to include support for the watchdog timer
+	  embedded in NVIDIA Tegra SoCs.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called tegra_wdt.
+
+config TEGRA_WATCHDOG_ENABLE_ON_PROBE
+	tristate "Turn on Tegra watchdog at system start up"
+	depends on ARCH_TEGRA && TEGRA_WATCHDOG
+	help
+	  Say Y here to enable the tegra watchdog at driver
+	  probe time, rather than when the device is opened.
 
 config EP93XX_WATCHDOG
 	tristate "EP93xx Watchdog"

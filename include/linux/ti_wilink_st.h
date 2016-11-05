@@ -24,7 +24,9 @@
 
 #ifndef TI_WILINK_ST_H
 #define TI_WILINK_ST_H
-
+#include <linux/wakelock.h>
+#include <linux/skbuff.h>
+#include <linux/serial_core.h>
 /**
  * enum proto-type - The protocol on WiLink chips which share a
  *	common physical interface like UART.
@@ -156,6 +158,7 @@ struct st_data_s {
 	unsigned long ll_state;
 	void *kim_data;
 	struct tty_struct *tty;
+	struct wake_lock st_wk_lock;
 };
 
 /*
@@ -371,6 +374,8 @@ struct hci_command {
 #define LL_WAKE_UP_IND	0x32
 #define LL_WAKE_UP_ACK	0x33
 
+#define HCILL_SLEEP_MODE_OPCODE 0xFD0C
+
 /* initialize and de-init ST LL */
 long st_ll_init(struct st_data_s *);
 long st_ll_deinit(struct st_data_s *);
@@ -386,9 +391,15 @@ void st_ll_disable(struct st_data_s *);
  * various funcs used by ST core to set/get the various PM states
  * of the chip.
  */
+
+#ifdef CONFIG_TI_ST
 unsigned long st_ll_getstate(struct st_data_s *);
+#else
+static inline unsigned long st_ll_getstate(struct st_data_s *ll){ return 0; }
+#endif
 unsigned long st_ll_sleep_state(struct st_data_s *, unsigned char);
 void st_ll_wakeup(struct st_data_s *);
+
 
 /*
  * header information used by st_core.c for FM and GPS
@@ -439,10 +450,17 @@ struct ti_st_plat_data {
 	unsigned long baud_rate;
 	int (*suspend)(struct platform_device *, pm_message_t);
 	int (*resume)(struct platform_device *);
-	int (*chip_enable) (struct kim_data_s *);
-	int (*chip_disable) (struct kim_data_s *);
-	int (*chip_asleep) (struct kim_data_s *);
-	int (*chip_awake) (struct kim_data_s *);
 };
 
+/*ST states used in st_host_wake driver*/
+#define ST_PROTO_UNREGISTERED  0
+#define ST_PROTO_REGISTERED    1
+
+void st_host_wake_notify(int, int);
+
+/*ST Voltage regulation state*/
+#define ST_VLTG_REG_DISABLE    0
+#define ST_VLTG_REG_ENABLE     1
+
+void st_vltg_regulation(int);
 #endif /* TI_WILINK_ST_H */

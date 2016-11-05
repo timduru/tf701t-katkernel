@@ -4,6 +4,8 @@
  * Copyright 2005 Phil Blundell
  * Copyright 2010, 2011 David Jander <david@protonic.nl>
  *
+ * Copyright (c) 2010-2013, NVIDIA CORPORATION.  All rights reserved.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -29,6 +31,10 @@
 #include <linux/of_platform.h>
 #include <linux/of_gpio.h>
 #include <linux/spinlock.h>
+#include <asm/mach-types.h>
+#include <../gpio-names.h>
+
+static int press_state;
 
 struct gpio_button_data {
 	const struct gpio_keys_button *button;
@@ -324,17 +330,47 @@ static struct attribute_group gpio_keys_attr_group = {
 	.attrs = gpio_keys_attrs,
 };
 
+static char *key_descriptions[] = {
+	"KEY_VOLUMEDOWN",
+	"KEY_VOLUMEUP",
+	"KEY_POWER",
+};
+
+static void gpio_keys_gpio_report_wake(struct gpio_button_data *bdata)
+{
+	const struct gpio_keys_button *button = bdata->button;
+	struct input_dev *input = bdata->input;
+	unsigned int type = button->type ?: EV_KEY;
+	/* Report 1 for all keys except SW_LID which reports 0 as wake */
+	unsigned int report_val = !(button->type == EV_SW
+				&& button->code == SW_LID);
+
+	input_event(input, type, button->code, report_val);
+	input_sync(input);
+}
+
 static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 {
 	const struct gpio_keys_button *button = bdata->button;
 	struct input_dev *input = bdata->input;
 	unsigned int type = button->type ?: EV_KEY;
 	int state = (gpio_get_value_cansleep(button->gpio) ? 1 : 0) ^ button->active_low;
+	static int prev_state = 0;
 
 	if (type == EV_ABS) {
 		if (state)
 			input_event(input, type, button->code, button->value);
 	} else {
+		if (button->code == KEY_POWER||(machine_is_haydn()&&button->code == KEY_MODE)) {
+			if (!prev_state && (prev_state == state) && (!press_state) ) {
+				pr_info("gpio_keys: Make up pressed %s\n",
+					button->code == KEY_POWER ? "KEY_POWER" : "KEY_MODE");
+				input_event(input, type, button->code, 1);
+				input_sync(input);
+			}
+			prev_state = state;
+		}
+
 		input_event(input, type, button->code, !!state);
 	}
 	input_sync(input);
@@ -344,6 +380,18 @@ static void gpio_keys_gpio_work_func(struct work_struct *work)
 {
 	struct gpio_button_data *bdata =
 		container_of(work, struct gpio_button_data, work);
+	/* Valid keys were logged for debugging in machine grouper */
+	const struct gpio_keys_button *button = bdata->button;
+
+	int state = (gpio_get_value_cansleep(button->gpio) ? 1 : 0) ^ button->active_low;
+	press_state = state;
+
+	if ((button->code <= KEY_POWER) & (button->code >= KEY_VOLUMEDOWN))
+		pr_info("gpio_keys: %s %s\n", state ? "Pressed" : "Released",
+			key_descriptions[button->code - KEY_VOLUMEDOWN]);
+	else if (button->code == KEY_MODE)
+		pr_info("gpio_keys: %s KEY_MODE\n", state ? "Pressed" : "Released");
+
 
 	gpio_keys_gpio_report_event(bdata);
 }
@@ -714,6 +762,13 @@ static int __devinit gpio_keys_probe(struct platform_device *pdev)
 		goto fail2;
 	}
 
+	/* If any single key button can wake the device, we need to inform
+	   the input subsystem not to mess with our key state during a suspend
+	   and resume cycle. */
+	if (wakeup) {
+		device_set_wakeup_capable(&input->dev, true);
+	}
+
 	error = input_register_device(input);
 	if (error) {
 		dev_err(dev, "Unable to register input device, error: %d\n",
@@ -797,16 +852,23 @@ static int gpio_keys_suspend(struct device *dev)
 
 static int gpio_keys_resume(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
 	struct gpio_keys_drvdata *ddata = dev_get_drvdata(dev);
+	struct gpio_keys_platform_data *pdata = pdev->dev.platform_data;
+	int wakeup_key = KEY_RESERVED;
 	int i;
+	if (pdata->wakeup_key)
+		wakeup_key = pdata->wakeup_key();
 
 	for (i = 0; i < ddata->n_buttons; i++) {
 		struct gpio_button_data *bdata = &ddata->data[i];
-		if (bdata->button->wakeup && device_may_wakeup(dev))
+		if (bdata->button->wakeup && device_may_wakeup(dev)) {
 			disable_irq_wake(bdata->irq);
 
-		if (gpio_is_valid(bdata->button->gpio))
-			gpio_keys_gpio_report_event(bdata);
+			if (wakeup_key == bdata->button->code)
+				gpio_keys_gpio_report_wake(bdata);
+		}
+
 	}
 	input_sync(ddata->input);
 

@@ -46,17 +46,15 @@ ENTRY(cpu_v7_switch_mm)
 #ifdef CONFIG_ARM_ERRATA_430973
 	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
 #endif
-#ifdef CONFIG_ARM_ERRATA_754322
-	dsb
-#endif
-	mcr	p15, 0, r2, c13, c0, 1		@ set reserved context ID
-	isb
-1:	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
+	mrc	p15, 0, r2, c2, c0, 1		@ load TTB 1
+	mcr	p15, 0, r2, c2, c0, 0		@ into TTB 0
 	isb
 #ifdef CONFIG_ARM_ERRATA_754322
 	dsb
 #endif
 	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
+	isb
+	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
 	isb
 #endif
 	mov	pc, lr
@@ -106,7 +104,9 @@ ENTRY(cpu_v7_set_pte_ext)
  ARM(	str	r3, [r0, #2048]! )
  THUMB(	add	r0, r0, #2048 )
  THUMB(	str	r3, [r0] )
-	mcr	p15, 0, r0, c7, c10, 1		@ flush_pte
+ 	mrc	p15, 0, r3, c0, c1, 7		@ read ID_MMFR3
+	tst	r3, #0xf << 20			@ check the coherent walk bits
+	mcreq	p15, 0, r0, c7, c10, 1		@ flush_pte
 #endif
 	mov	pc, lr
 ENDPROC(cpu_v7_set_pte_ext)
@@ -139,8 +139,8 @@ ENDPROC(cpu_v7_set_pte_ext)
 	 *   NS1 = PRRR[19] = 1		- normal shareable property
 	 *   NOS = PRRR[24+n] = 1	- not outer shareable
 	 */
-.equ	PRRR,	0xff0a81a8
-.equ	NMRR,	0x40e040e0
+.equ	PRRR,	0xff0a89a8
+.equ	NMRR,	0xc0e044e0
 
 	/*
 	 * Macro for setting up the TTBRx and TTBCR registers.

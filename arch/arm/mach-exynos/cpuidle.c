@@ -35,7 +35,6 @@
 #define S5P_CHECK_AFTR		0xFCBA0D10
 
 static int exynos4_enter_idle(struct cpuidle_device *dev,
-			struct cpuidle_driver *drv,
 			      int index);
 static int exynos4_enter_lowpower(struct cpuidle_device *dev,
 				struct cpuidle_driver *drv,

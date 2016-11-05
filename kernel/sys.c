@@ -2065,7 +2065,7 @@ int orderly_poweroff(bool force)
 
 	call_usermodehelper_setfns(info, NULL, argv_cleanup, NULL);
 
-	ret = call_usermodehelper_exec(info, UMH_NO_WAIT);
+	ret = call_usermodehelper_exec(info, UMH_WAIT_EXEC);
 
   out:
 	if (ret && force) {

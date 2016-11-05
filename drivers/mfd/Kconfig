@@ -176,7 +176,6 @@ config MFD_TPS65910
 	bool "TPS65910 Power Management chip"
 	depends on I2C=y && GPIOLIB
 	select MFD_CORE
-	select GPIO_TPS65910
 	select REGMAP_I2C
 	help
 	  if you say yes here you get support for the TPS65910 series of
@@ -280,6 +279,19 @@ config TWL6040_CORE
 	  additional drivers must be enabled in order to use the
 	  functionality of the device (audio, vibra).
 
+config AIC3XXX_CORE
+	bool "Support for AIC3XXX audio codec"
+	depends on I2C=y && GENERIC_HARDIRQS
+	select MFD_CORE
+	select REGMAP_I2C
+	default n
+	help
+	  Say yes here if you want support for Texas Instruments AIC3XXX audio
+	  codec.
+	  This driver provides common support for accessing the device,
+	  additional drivers must be enabled in order to use the
+	  functionality of the device (audio, vibra).
+
 config MFD_STMPE
 	bool "Support STMicroelectronics STMPE"
 	depends on (I2C=y || SPI_MASTER=y) && GENERIC_HARDIRQS
@@ -370,12 +382,20 @@ config PMIC_DA903X
 	  individual components like LCD backlight, voltage regulators,
 	  LEDs and battery-charger under the corresponding menus.
 
+config MFD_MAX8831
+	bool "Support Maxim LED MAX8831 with I2C"
+	depends on I2C=y
+	select REGMAP_I2C
+	help
+	  Say yes here to support for Maxim LED MAX8831 with I2C.
+
 config PMIC_DA9052
 	bool
 	select MFD_CORE
 
 config MFD_DA9052_SPI
 	bool "Support Dialog Semiconductor DA9052/53 PMIC variants with SPI"
+	select IRQ_DOMAIN
 	select REGMAP_SPI
 	select REGMAP_IRQ
 	select PMIC_DA9052
@@ -388,6 +408,7 @@ config MFD_DA9052_SPI
 
 config MFD_DA9052_I2C
 	bool "Support Dialog Semiconductor DA9052/53 PMIC variants with I2C"
+	select IRQ_DOMAIN
 	select REGMAP_I2C
 	select REGMAP_IRQ
 	select PMIC_DA9052
@@ -407,6 +428,20 @@ config PMIC_ADP5520
 	  the I2C driver and the core APIs _only_, you have to select
 	  individual components like LCD backlight, LEDs, GPIOs and Kepad
 	  under the corresponding menus.
+
+config MFD_MAX77665
+	bool "Maxim Semiconductor MAX77665 Companion PMIC Support"
+	depends on I2C=y && GENERIC_HARDIRQS
+	select MFD_CORE
+	select REGMAP_I2C
+	select REGMAP_IRQ
+	help
+	  Say yes here to support for Maxim Semiconductor MAX77665.
+	  This is a Power Management IC with Flash, Fuel Gauge, Haptic,
+	  MUIC controls on chip.
+	  This driver provides common support for accessing the device;
+	  additional drivers must be enabled in order to use the functionality
+	  of the device.
 
 config MFD_MAX8925
 	bool "Maxim Semiconductor MAX8925 PMIC Support"
@@ -451,6 +486,26 @@ config MFD_S5M_CORE
 	 This driver provies common support for accessing the device,
 	 additional drivers must be enabled in order to use the functionality
 	 of the device
+
+config MFD_MAX8907C
+	tristate "Maxim Semiconductor MAX8907C PMIC Support"
+	select MFD_CORE
+	depends on I2C
+	help
+	  Say yes here to support for Maxim Semiconductor MAX8907C. This is
+	  a Power Management IC. This driver provies common support for
+	  accessing the device, additional drivers must be enabled in order
+	  to use the functionality of the device.
+
+config MFD_MAX77663
+	tristate "Maxim Semiconductor MAX77663 PMIC Support"
+	select MFD_CORE
+	depends on I2C
+	help
+	  Say yes here to support for Maxim Semiconductor MAX77663. This is
+	  a Power Management IC. This driver provies common support for
+	  accessing the device, additional drivers must be enabled in order
+	  to use the functionality of the device.
 
 config MFD_WM8400
 	tristate "Support Wolfson Microelectronics WM8400"
@@ -558,6 +613,7 @@ config MFD_WM8994
 	bool "Support Wolfson Microelectronics WM8994"
 	select MFD_CORE
 	select REGMAP_I2C
+	select IRQ_DOMAIN
 	select REGMAP_IRQ
 	depends on I2C=y && GENERIC_HARDIRQS
 	help
@@ -866,6 +922,17 @@ config MFD_INTEL_MSIC
 	  Passage) chip. This chip embeds audio, battery, GPIO, etc.
 	  devices used in Intel Medfield platforms.
 
+config MFD_TPS6591X
+	bool "TPS6591x Power Management chips"
+	depends on I2C && GPIOLIB && GENERIC_HARDIRQS
+	select MFD_CORE
+	help
+	  If you say yes here you get support for the TPS6591X series of
+	  Power Management chips.
+	  This driver provides common support for accessing the device,
+	  additional drivers must be enabled in order to use the
+	  functionality of the device.
+
 config MFD_RC5T583
 	bool "Ricoh RC5T583 Power Management system device"
 	depends on I2C=y && GENERIC_HARDIRQS
@@ -880,6 +947,43 @@ config MFD_RC5T583
 	  Additional drivers must be enabled in order to use the
 	  different functionality of the device.
 
+config MFD_AAT2870_CORE
+	bool "Support for the AnalogicTech AAT2870"
+	select MFD_CORE
+	depends on I2C=y && GPIOLIB
+	help
+	  If you say yes here you get support for the AAT2870.
+
+config MFD_TPS80031
+	bool "TI TPS80031 Power Management chips"
+	depends on I2C && GPIOLIB && GENERIC_HARDIRQS
+	select MFD_CORE
+	help
+	  If you say yes here you get support for the TPS80031 Power
+	  Management chips.
+	  This driver provides common support for accessing the device,
+	  additional drivers must be enabled in order to use the
+	  functionality of the device.
+
+config GPADC_TPS80031
+	bool "Support for TI TPS80031 Gpadc driver"
+	depends on  MFD_TPS80031
+	help
+	  If you say yes here you get support for the TPS80031 gpadc
+	  Module.
+
+config MFD_RICOH583
+	bool "Ricoh RC5T583 Power Management system device"
+	depends on I2C && GPIOLIB && GENERIC_HARDIRQS
+	select MFD_CORE
+	default n
+	help
+	  If you say yes here you get support for the RICOH583 Power
+	  Management system device.
+	  This driver provides common support for accessing the device,
+	  additional drivers must be enabled in order to use the
+	  functionality of the device.
+
 config MFD_ANATOP
 	bool "Support for Freescale i.MX on-chip ANATOP controller"
 	depends on SOC_IMX6Q
@@ -888,8 +992,17 @@ config MFD_ANATOP
 	  MFD controller. This controller embeds regulator and
 	  thermal devices for Freescale i.MX platforms.
 
+config MFD_PALMAS
+	bool "Support for the TI Palmas series chips"
+	select MFD_CORE
+	select REGMAP_I2C
+	depends on I2C=y
+	help
+	  If you say yes here you get support for the Palmas
+	  series of PMIC chips from Texas Instruments.
+
 endmenu
-endif
+endif # MFD_SUPPORT
 
 menu "Multimedia Capabilities Port drivers"
 	depends on ARCH_SA1100

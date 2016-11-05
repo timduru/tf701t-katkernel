@@ -4,6 +4,8 @@ config ARM
 	select HAVE_AOUT
 	select HAVE_DMA_API_DEBUG
 	select HAVE_IDE if PCI || ISA || PCMCIA
+	select HAVE_DMA_CONTIGUOUS if (CPU_V6 || CPU_V6K || CPU_V7)
+	select HAVE_DMA_ATTRS
 	select HAVE_MEMBLOCK
 	select RTC_LIB
 	select SYS_SUPPORTS_APM_EMULATION
@@ -43,6 +45,14 @@ config ARM
 	  <http://www.arm.linux.org.uk/>.
 
 config ARM_HAS_SG_CHAIN
+	bool
+
+config NEED_SG_DMA_LENGTH
+	bool
+
+config ARM_DMA_USE_IOMMU
+	select NEED_SG_DMA_LENGTH
+	select ARM_HAS_SG_CHAIN
 	bool
 
 config HAVE_PWM
@@ -193,6 +203,9 @@ config NEED_RET_TO_USER
 
 config ARCH_MTD_XIP
 	bool
+
+config ARCH_PROVIDES_UDELAY
+  bool
 
 config VECTORS_BASE
 	hex
@@ -676,7 +689,11 @@ config ARCH_TEGRA
 	select HAVE_SMP
 	select MIGHT_HAVE_CACHE_L2X0
 	select NEED_MACH_IO_H if PCI
+	select NEED_MACH_MEMORY_H
 	select ARCH_HAS_CPUFREQ
+	select ARCH_PROVIDES_UDELAY
+	select FIQ
+	select PCI
 	help
 	  This enables support for NVIDIA Tegra based systems (Tegra APX,
 	  Tegra 6xx and Tegra 2 series).
@@ -1157,6 +1174,7 @@ source arch/arm/mm/Kconfig
 config ARM_NR_BANKS
 	int
 	default 16 if ARCH_EP93XX
+	default 16 if ARCH_TEGRA_4GB_MEMORY
 	default 8
 
 config IWMMXT
@@ -1245,6 +1263,14 @@ config ARM_ERRATA_460075
 	  workaround disables the write-allocate mode for the L2 cache via the
 	  ACTLR register. Note that setting specific bits in the ACTLR register
 	  may not be available in non-secure mode.
+
+config ARM_ERRATA_716044
+	bool "ARM errata: an uncacheable load multiple instruction can cause a deadlock"
+	depends on CPU_V7
+	help
+	 Under some rare circumstances, an uncacheable load multiple
+	 instruction (LDRD, LDM, VLDM, VLD1, VLD2, VLD3, VLD4) can cause
+	 a processor deadlock.
 
 config ARM_ERRATA_742230
 	bool "ARM errata: DMB operation may be faulty"
@@ -1394,6 +1420,25 @@ config ARM_ERRATA_764369
 	  relevant cache maintenance functions and sets a specific bit
 	  in the diagnostic control register of the SCU.
 
+config ARM_ERRATA_720791
+	bool "ARM errata: Dynamic high-level clock gating corrupts the Jazelle instruction stream"
+	depends on CPU_V7
+	help
+	  This option enables the workaround for the 720791 Cortex-A9
+	  (r1p0..r1p2) erratum.  The Jazelle instruction stream may be
+	  corrupted when dynamic high-level clock gating is enabled.
+	  This workaround disables gating the Core clock when the Instruction
+	  side is waiting for a Page Table Walk answer or linefill completion.
+
+config ARM_ERRATA_752520
+	bool "ARM errata: Faulty arbitration between PLD and Cacheable TLB requests may create a system deadlock"
+	depends on CPU_V7
+	help
+	  Under rare circumstances, PLDs may interfere with a Cacheable page table walk,
+	  creating a processor deadlock. The erratum can only happen when the Data Cache
+	  and MMU are enabled, with the TLB descriptors marked as L1 cacheable,
+	  so that Page Table Walks are performed as cache linefills.
+
 config PL310_ERRATA_769419
 	bool "PL310 errata: no automatic Store Buffer drain"
 	depends on CACHE_L2X0
@@ -1406,6 +1451,16 @@ config PL310_ERRATA_769419
 	  on systems with an outer cache, the store buffer is drained
 	  explicitly.
 
+config ARM_ERRATA_798181
+	bool "ARM errata: TLBI/DSB failure on Cortex-A15"
+	depends on CPU_V7 && SMP
+	help
+	  On Cortex-A15 (r0p0..r3p2) the TLBI*IS/DSB operations are not
+	  adequately shooting down all use of the old entries. This
+	  option enables the Linux kernel workaround for this erratum
+	  which sends an IPI to the CPUs that are running the same mm
+	  (and ASID) as the one being invalidated.
+
 config ARM_ERRATA_775420
        bool "ARM errata: A data cache maintenance operation which aborts, might lead to deadlock"
        depends on CPU_V7
@@ -1415,6 +1470,33 @@ config ARM_ERRATA_775420
 	 operation aborts with MMU exception, it might cause the processor
 	 to deadlock. This workaround puts DSB before executing ISB if
 	 an abort may occur on cache maintenance.
+
+config ARM_ERRATA_799270
+	bool "ARM errata: Writing ACTLR.SMP when the L2 cache has been idle for an extended period may not work correctly"
+	depends on CPU_V7 && SMP
+	help
+	  This option enables the workaround for the 799270 Cortex-A15 (r2p0,
+	  r2p1, r2p2, r2p3, r2p4) erratum. If the L2 cache logic clock is
+	  stopped because of L2 inactivity, setting or clearing the ACTLR.SMP
+	  bit might not be effective. The bit is modified in the ACTLR, meaning
+	  a read of the register returns the updated value. However the logic
+	  that uses that bit retains the previous value. The workaround is to
+	  do a memory read to a memory location with Non-cacheable, Strongly-
+	  ordered, or Device memory attributes. A dependency must be created
+	  between the returning load data and the MCR instruction that sets the
+	  ACTLR.SMP bit.
+
+config ARM_ERRATA_798870
+	bool "ARM errata: A memory read can stall indefinitely in the L2 cache"
+	depends on CPU_V7
+	help
+	  If back-to-back speculative cache line fills (fill A and fill B)
+	  are issued from the L1 data cache of a CPU to the L2 cache, the
+	  second request (fill B) is then cancelled, and the second request
+	  would have detected a hazard against a recent write or eviction
+	  (write B) to the same cache line as fill B, then the L2 logic might
+	  deadlock. The workaround is to let a secondary CPU go through reset
+	  cycle periodically which can restart L2 clock.
 
 endmenu
 
@@ -1478,6 +1560,8 @@ config PCI_HOST_ITE8152
 
 source "drivers/pci/Kconfig"
 
+source "drivers/pci/pcie/Kconfig"
+
 source "drivers/pcmcia/Kconfig"
 
 endmenu
@@ -1502,7 +1586,8 @@ config SMP
 	depends on HAVE_SMP
 	depends on MMU
 	select USE_GENERIC_SMP_HELPERS
-	select HAVE_ARM_SCU if !ARCH_MSM_SCORPIONMP
+	select HAVE_ARM_SCU if !ARCH_MSM_SCORPIONMP && \
+		 (!ARCH_TEGRA || ARCH_TEGRA_HAS_ARM_SCU)
 	help
 	  This enables support for systems with more than one CPU. If you have
 	  a system with only one CPU, like most personal computers, say N. If
@@ -1563,6 +1648,13 @@ config HAVE_ARM_SCU
 	help
 	  This option enables support for the ARM system coherency unit
 
+config ARM_ARCH_TIMER
+	bool "Architected timer support"
+	depends on CPU_V7
+	select TICK_ONESHOT
+	help
+	  This option enables support for the ARM architected timer
+
 config HAVE_ARM_TWD
 	bool
 	depends on SMP
@@ -1593,6 +1685,49 @@ config PAGE_OFFSET
 	default 0x80000000 if VMSPLIT_2G
 	default 0xC0000000
 
+choice
+	prompt "Task size"
+	depends on MMU
+	default TASK_SIZE_1G_LESS_16M if VMSPLIT_1G
+	default TASK_SIZE_2G_LESS_16M if VMSPLIT_2G
+	default TASK_SIZE_3G_LESS_16M
+
+config TASK_SIZE_1G_LESS_16M
+	bool "Task size is 1GiB less 16MiB"
+	depends on VMSPLIT_1G
+
+config TASK_SIZE_1G_LESS_24M
+	bool "Task size is 1GiB less 24MiB"
+	depends on VMSPLIT_1G
+
+config TASK_SIZE_2G_LESS_16M
+	bool "Task size is 2GiB less 16MiB"
+	depends on VMSPLIT_2G
+
+config TASK_SIZE_2G_LESS_24M
+	bool "Task size is 2GiB less 24MiB"
+	depends on VMSPLIT_2G
+
+config TASK_SIZE_3G_LESS_16M
+	bool "Task size is 3GiB less 16MiB"
+	depends on VMSPLIT_3G
+
+config TASK_SIZE_3G_LESS_24M
+	bool "Task size is 3GiB less 24MiB"
+	depends on VMSPLIT_3G
+
+endchoice
+
+config TASK_SIZE
+	hex
+	depends on MMU
+	default 0x3E800000 if TASK_SIZE_1G_LESS_24M
+	default 0x3F000000 if TASK_SIZE_1G_LESS_16M
+	default 0x7E800000 if TASK_SIZE_2G_LESS_24M
+	default 0x7F000000 if TASK_SIZE_2G_LESS_16M
+	default 0xBE800000 if TASK_SIZE_3G_LESS_24M
+	default 0xBF000000
+
 config NR_CPUS
 	int "Maximum number of CPUs (2-32)"
 	range 2 32
@@ -1610,7 +1745,7 @@ config LOCAL_TIMERS
 	bool "Use local timer interrupts"
 	depends on SMP
 	default y
-	select HAVE_ARM_TWD if (!ARCH_MSM_SCORPIONMP && !EXYNOS4_MCT)
+	select HAVE_ARM_TWD if (!ARCH_MSM_SCORPIONMP && !EXYNOS4_MCT && !ARM_ARCH_TIMER)
 	help
 	  Enable support for local timers on SMP platforms, rather then the
 	  legacy IPI broadcast method.  Local timers allows the system
@@ -1637,6 +1772,7 @@ config HZ
 	default OMAP_32K_TIMER_HZ if ARCH_OMAP && OMAP_32K_TIMER
 	default AT91_TIMER_HZ if ARCH_AT91
 	default SHMOBILE_TIMER_HZ if ARCH_SHMOBILE
+	default TEGRA_TIMER_HZ if ARCH_TEGRA
 	default 100
 
 config THUMB2_KERNEL
@@ -1863,6 +1999,19 @@ config UACCESS_WITH_MEMCPY
 	  However, if the CPU data cache is using a write-allocate mode,
 	  this option is unlikely to provide any performance gain.
 
+config ARM_PLD_64BYTE
+	bool "Use 64-bit preload size for kernel memory copy"
+	depends on CPU_V7
+	help
+	  Config preload size for memcpy, selecting this for Cortex-A15
+
+config USE_LDRDSTRD_OVER_LDMSTM
+	bool "Use 64-bit access instructions to optimize memory copy"
+	depends on CPU_V7
+	help
+	  Cortex-A15 perform better when use LDRD/STRD to access memory.
+	  Selecting this to optimize memory copy routines.
+
 config SECCOMP
 	bool
 	prompt "Enable seccomp to safely compute untrusted bytecode"
@@ -1895,6 +2044,15 @@ config DEPRECATED_PARAM_STRUCT
 	help
 	  This was deprecated in 2001 and announced to live on for 5 years.
 	  Some old boot loaders still use this way.
+
+config ARM_FLUSH_CONSOLE_ON_RESTART
+	bool "Force flush the console on restart"
+	help
+	  If the console is locked while the system is rebooted, the messages
+	  in the temporary logbuffer would not have propogated to all the
+	  console drivers. This option forces the console lock to be
+	  released if it failed to be acquired, which will cause all the
+	  pending messages to be flushed.
 
 endmenu
 
@@ -2201,6 +2359,10 @@ config CPU_FREQ_S3C24XX_DEBUGFS
 endif
 
 source "drivers/cpuidle/Kconfig"
+
+source "drivers/cpuquiet/Kconfig"
+
+source "drivers/edp/Kconfig"
 
 endmenu
 

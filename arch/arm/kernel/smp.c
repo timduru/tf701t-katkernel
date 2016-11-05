@@ -27,6 +27,7 @@
 #include <linux/completion.h>
 
 #include <linux/atomic.h>
+#include <asm/soc.h>
 #include <asm/cacheflush.h>
 #include <asm/cpu.h>
 #include <asm/cputype.h>
@@ -41,6 +42,7 @@
 #include <asm/tlbflush.h>
 #include <asm/ptrace.h>
 #include <asm/localtimer.h>
+#include <asm/idmap.h>
 #include <asm/smp_plat.h>
 
 /*
@@ -56,6 +58,7 @@ enum ipi_msg_type {
 	IPI_CALL_FUNC,
 	IPI_CALL_FUNC_SINGLE,
 	IPI_CPU_STOP,
+	IPI_CPU_BACKTRACE,
 };
 
 static DECLARE_COMPLETION(cpu_running);
@@ -121,13 +124,95 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	return ret;
 }
 
+/* SoC helpers */
+static const struct arm_soc_smp_init_ops *soc_smp_init_ops  __initdata;
+static const struct arm_soc_smp_ops *soc_smp_ops;
+static struct arm_soc_smp_ops __soc_smp_ops;
+
+void __init soc_smp_ops_register(struct arm_soc_smp_init_ops *smp_init_ops,
+				 struct arm_soc_smp_ops *smp_ops)
+{
+	if (smp_init_ops)
+		soc_smp_init_ops = smp_init_ops;
+
+	/*
+	 * Warning: we're copying an __initdata structure into a
+	 * __cpuinitdata structure. We *know* it is valid because only
+	 * __cpuinit (or more persistant) functions should be pointed
+	 * to by soc_smp_ops. Still, this is borderline ugly.
+	 */
+	if (smp_ops) {
+		__soc_smp_ops = *smp_ops;
+		soc_smp_ops = &__soc_smp_ops;
+	}
+}
+
+void __init smp_init_cpus(void)
+{
+	if (soc_smp_init_ops && soc_smp_init_ops->smp_init_cpus)
+		soc_smp_init_ops->smp_init_cpus();
+}
+
+static void __init platform_smp_prepare_cpus(unsigned int max_cpus)
+{
+	if (soc_smp_ops && soc_smp_init_ops->smp_prepare_cpus)
+		soc_smp_init_ops->smp_prepare_cpus(max_cpus);
+}
+
+static void __cpuinit platform_secondary_init(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->smp_secondary_init)
+		soc_smp_ops->smp_secondary_init(cpu);
+}
+
+int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
+{
+	if (soc_smp_ops && soc_smp_ops->smp_boot_secondary)
+		return soc_smp_ops->smp_boot_secondary(cpu, idle);
+	return -ENOSYS;
+}
+
 #ifdef CONFIG_HOTPLUG_CPU
 static void percpu_timer_stop(void);
+
+int dummy_cpu_kill(unsigned int cpu)
+{
+	return 1;
+}
+
+int dummy_cpu_disable(unsigned int cpu)
+{
+	/*
+	 * we don't allow CPU 0 to be shutdown (it is still too special
+	 * e.g. clock tick interrupts)
+	 */
+	return cpu == 0 ? -EPERM : 0;
+}
+
+static int platform_cpu_kill(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->cpu_kill)
+		return soc_smp_ops->cpu_kill(cpu);
+	return 0;
+}
+
+static void __cpuinit platform_cpu_die(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->cpu_die)
+		soc_smp_ops->cpu_die(cpu);
+}
+
+static int __cpuinit platform_cpu_disable(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->cpu_disable)
+		return soc_smp_ops->cpu_disable(cpu);
+	return -EPERM;
+}
 
 /*
  * __cpu_disable runs on the processor to be shutdown.
  */
-int __cpu_disable(void)
+int __cpuinit __cpu_disable(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct task_struct *p;
@@ -153,12 +238,24 @@ int __cpu_disable(void)
 	 */
 	percpu_timer_stop();
 
+#ifndef CONFIG_ARCH_TEGRA_11x_SOC
 	/*
 	 * Flush user cache and TLB mappings, and then remove this CPU
 	 * from the vm mask set of all processes.
+	 *
+	 * Caches are flushed to the Level of Unification Inner Shareable
+	 * to write-back dirty lines to unified caches shared by all CPUs.
 	 */
-	flush_cache_all();
+
+	/*
+	 * This step can be skipped over if we do the same thing later,
+	 * which happens to be the case for tegra. We need to be careful
+	 * here to make sure tegra_cpu_die always follows __cpu_disable
+	 * in cpu shutdown sequence.
+	 */
+	flush_cache_louis();
 	local_flush_tlb_all();
+#endif
 
 	read_lock(&tasklist_lock);
 	for_each_process(p) {
@@ -176,13 +273,12 @@ static DECLARE_COMPLETION(cpu_died);
  * called on the thread which is asking for a CPU to be shutdown -
  * waits until shutdown has completed, or it is timed out.
  */
-void __cpu_die(unsigned int cpu)
+void __cpuinit __cpu_die(unsigned int cpu)
 {
 	if (!wait_for_completion_timeout(&cpu_died, msecs_to_jiffies(5000))) {
 		pr_err("CPU%u: cpu didn't die\n", cpu);
 		return;
 	}
-	printk(KERN_NOTICE "CPU%u: shutdown\n", cpu);
 
 	if (!platform_cpu_kill(cpu))
 		printk("CPU%u: unable to kill\n", cpu);
@@ -267,8 +363,6 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 	atomic_inc(&mm->mm_count);
 	current->active_mm = mm;
 	cpumask_set_cpu(cpu, mm_cpumask(mm));
-
-	printk("CPU%u: Booted secondary processor\n", cpu);
 
 	cpu_init();
 	preempt_disable();
@@ -389,6 +483,7 @@ static const char *ipi_types[NR_IPI] = {
 	S(IPI_CALL_FUNC, "Function call interrupts"),
 	S(IPI_CALL_FUNC_SINGLE, "Single function call interrupts"),
 	S(IPI_CPU_STOP, "CPU stop interrupts"),
+	S(IPI_CPU_BACKTRACE, "CPU backtrace"),
 };
 
 void show_ipi_list(struct seq_file *p, int prec)
@@ -425,7 +520,9 @@ static DEFINE_PER_CPU(struct clock_event_device, percpu_clockevent);
 static void ipi_timer(void)
 {
 	struct clock_event_device *evt = &__get_cpu_var(percpu_clockevent);
+	irq_enter();
 	evt->event_handler(evt);
+	irq_exit();
 }
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS_BROADCAST
@@ -460,6 +557,9 @@ static struct local_timer_ops *lt_ops;
 #ifdef CONFIG_LOCAL_TIMERS
 int local_timer_register(struct local_timer_ops *ops)
 {
+	if (!is_smp() || !setup_max_cpus)
+		return -ENXIO;
+
 	if (lt_ops)
 		return -EBUSY;
 
@@ -516,8 +616,64 @@ static void ipi_cpu_stop(unsigned int cpu)
 	local_fiq_disable();
 	local_irq_disable();
 
+#ifdef CONFIG_HOTPLUG_CPU
+	platform_cpu_kill(cpu);
+#endif
+
 	while (1)
 		cpu_relax();
+}
+
+static cpumask_t backtrace_mask;
+static DEFINE_RAW_SPINLOCK(backtrace_lock);
+
+/* "in progress" flag of arch_trigger_all_cpu_backtrace */
+static unsigned long backtrace_flag;
+
+void smp_send_all_cpu_backtrace(void)
+{
+	unsigned int this_cpu = smp_processor_id();
+	int i;
+
+	if (test_and_set_bit(0, &backtrace_flag))
+		/*
+		 * If there is already a trigger_all_cpu_backtrace() in progress
+		 * (backtrace_flag == 1), don't output double cpu dump infos.
+		 */
+		return;
+
+	cpumask_copy(&backtrace_mask, cpu_online_mask);
+	cpu_clear(this_cpu, backtrace_mask);
+
+	pr_info("Backtrace for cpu %d (current):\n", this_cpu);
+	dump_stack();
+
+	pr_info("\nsending IPI to all other CPUs:\n");
+	smp_cross_call(&backtrace_mask, IPI_CPU_BACKTRACE);
+
+	/* Wait for up to 10 seconds for all other CPUs to do the backtrace */
+	for (i = 0; i < 10 * 1000; i++) {
+		if (cpumask_empty(&backtrace_mask))
+			break;
+		mdelay(1);
+	}
+
+	clear_bit(0, &backtrace_flag);
+	smp_mb__after_clear_bit();
+}
+
+/*
+ * ipi_cpu_backtrace - handle IPI from smp_send_all_cpu_backtrace()
+ */
+static void ipi_cpu_backtrace(unsigned int cpu, struct pt_regs *regs)
+{
+	if (cpu_isset(cpu, backtrace_mask)) {
+		raw_spin_lock(&backtrace_lock);
+		pr_warning("IPI backtrace for cpu %d\n", cpu);
+		show_regs(regs);
+		raw_spin_unlock(&backtrace_lock);
+		cpu_clear(cpu, backtrace_mask);
+	}
 }
 
 /*
@@ -538,9 +694,7 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 
 	switch (ipinr) {
 	case IPI_TIMER:
-		irq_enter();
 		ipi_timer();
-		irq_exit();
 		break;
 
 	case IPI_RESCHEDULE:
@@ -565,6 +719,10 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		irq_exit();
 		break;
 
+	case IPI_CPU_BACKTRACE:
+		ipi_cpu_backtrace(cpu, regs);
+		break;
+
 	default:
 		printk(KERN_CRIT "CPU%u: Unknown IPI message 0x%x\n",
 		       cpu, ipinr);
@@ -578,26 +736,18 @@ void smp_send_reschedule(int cpu)
 	smp_cross_call(cpumask_of(cpu), IPI_RESCHEDULE);
 }
 
-#ifdef CONFIG_HOTPLUG_CPU
-static void smp_kill_cpus(cpumask_t *mask)
-{
-	unsigned int cpu;
-	for_each_cpu(cpu, mask)
-		platform_cpu_kill(cpu);
-}
-#else
-static void smp_kill_cpus(cpumask_t *mask) { }
-#endif
-
 void smp_send_stop(void)
 {
 	unsigned long timeout;
-	struct cpumask mask;
 
-	cpumask_copy(&mask, cpu_online_mask);
-	cpumask_clear_cpu(smp_processor_id(), &mask);
-	if (!cpumask_empty(&mask))
-		smp_cross_call(&mask, IPI_CPU_STOP);
+	if (num_online_cpus() > 1) {
+		struct cpumask mask;
+		cpumask_copy(&mask, cpu_online_mask);
+		cpumask_clear_cpu(smp_processor_id(), &mask);
+
+		if (!cpumask_empty(&mask))
+			smp_cross_call(&mask, IPI_CPU_STOP);
+	}
 
 	/* Wait up to one second for other CPUs to stop */
 	timeout = USEC_PER_SEC;
@@ -606,8 +756,6 @@ void smp_send_stop(void)
 
 	if (num_online_cpus() > 1)
 		pr_warning("SMP: failed to stop secondary CPUs\n");
-
-	smp_kill_cpus(&mask);
 }
 
 /*

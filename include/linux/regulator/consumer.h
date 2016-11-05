@@ -2,6 +2,7 @@
  * consumer.h -- SoC Regulator consumer support.
  *
  * Copyright (C) 2007, 2008 Wolfson Microelectronics PLC.
+ * Copyright (C) 2012 NVIDIA Corporation
  *
  * Author: Liam Girdwood <lrg@slimlogic.co.uk>
  *
@@ -70,6 +71,7 @@ struct notifier_block;
  *             in a sleep/standby state. This mode is likely to be
  *             the most noisy and may not be able to handle fast load
  *             switching.
+ *  OFF        Regulator turn off completely.
  *
  * NOTE: Most regulators will only support a subset of these modes. Some
  * will only just support NORMAL.
@@ -81,6 +83,20 @@ struct notifier_block;
 #define REGULATOR_MODE_NORMAL			0x2
 #define REGULATOR_MODE_IDLE			0x4
 #define REGULATOR_MODE_STANDBY			0x8
+#define REGULATOR_MODE_OFF			0x10
+
+/*
+ * Regulator control modes.
+ *
+ * Regulators can be control through i2c or PWM or any other interface.
+ * The control mode provides the way to control the regulator.
+ *
+ *  Mode       Description
+ *  I2C        Regulator can be control through I2C interface.
+ *  PWM        Regulator can be control through PWM interface.
+ */
+#define REGULATOR_CONTROL_MODE_I2C		0x1
+#define REGULATOR_CONTROL_MODE_PWM		0x2
 
 /*
  * Regulator notifier events.
@@ -93,6 +109,10 @@ struct notifier_block;
  * FORCE_DISABLE  Regulator forcibly shut down by software.
  * VOLTAGE_CHANGE Regulator voltage changed.
  * DISABLE        Regulator was disabled.
+ * PRE_ENABLE     Regulator is to be enabled
+ * POST_ENABLE    Regulator was enabled
+ * OUT_PRECHANGE  Regulator is enabled and its voltage is to be changed
+ * OUT_POSTCHANGE Regulator is enabled and its voltage was changed
  *
  * NOTE: These events can be OR'ed together when passed into handler.
  */
@@ -105,6 +125,10 @@ struct notifier_block;
 #define REGULATOR_EVENT_FORCE_DISABLE		0x20
 #define REGULATOR_EVENT_VOLTAGE_CHANGE		0x40
 #define REGULATOR_EVENT_DISABLE 		0x80
+#define REGULATOR_EVENT_PRE_ENABLE		0x100
+#define REGULATOR_EVENT_POST_ENABLE		0x200
+#define REGULATOR_EVENT_OUT_PRECHANGE		0x400
+#define REGULATOR_EVENT_OUT_POSTCHANGE		0x800
 
 struct regulator;
 
@@ -177,6 +201,9 @@ int regulator_set_mode(struct regulator *regulator, unsigned int mode);
 unsigned int regulator_get_mode(struct regulator *regulator);
 int regulator_set_optimum_mode(struct regulator *regulator, int load_uA);
 
+int regulator_set_control_mode(struct regulator *regulator, unsigned int mode);
+unsigned int regulator_get_control_mode(struct regulator *regulator);
+
 /* regulator notifier block */
 int regulator_register_notifier(struct regulator *regulator,
 			      struct notifier_block *nb);
@@ -204,6 +231,13 @@ static inline struct regulator *__must_check regulator_get(struct device *dev,
 	 * corner cases of the API, such as regulator_get_voltage()
 	 * returning 0.
 	 */
+	return NULL;
+}
+
+static inline struct regulator *__must_check regulator_get_exclusive(
+		struct device *dev, const char *id)
+{
+	/* See comment for regulator_get() stub, above */
 	return NULL;
 }
 
@@ -238,6 +272,11 @@ static inline int regulator_force_disable(struct regulator *regulator)
 
 static inline int regulator_disable_deferred(struct regulator *regulator,
 					     int ms)
+{
+	return 0;
+}
+
+static inline int regulator_force_disable(struct regulator *regulator)
 {
 	return 0;
 }
@@ -283,13 +322,41 @@ static inline void regulator_bulk_free(int num_consumers,
 {
 }
 
+static inline int regulator_count_voltages(struct regulator *regulator)
+{
+	return 0;
+}
+
+static inline int regulator_list_voltage(struct regulator *regulator,
+					 unsigned selector)
+{
+	return 0;
+}
+
+static inline int regulator_is_supported_voltage(struct regulator *regulator,
+						 int min_uV, int max_uV)
+{
+	return 0;
+}
+
 static inline int regulator_set_voltage(struct regulator *regulator,
 					int min_uV, int max_uV)
 {
 	return 0;
 }
 
+static inline int regulator_set_voltage_time(struct regulator *regulator,
+					     int old_uV, int new_uV)
+{
+	return 0;
+}
+
 static inline int regulator_get_voltage(struct regulator *regulator)
+{
+	return 0;
+}
+
+static inline int regulator_sync_voltage(struct regulator *regulator)
 {
 	return 0;
 }
@@ -320,6 +387,18 @@ static inline int regulator_set_optimum_mode(struct regulator *regulator,
 					int load_uA)
 {
 	return REGULATOR_MODE_NORMAL;
+}
+
+static inline int regulator_set_control_mode(struct regulator *regulator,
+		unsigned int mode)
+{
+	return 0;
+}
+
+static inline unsigned int regulator_get_control_mode(
+		struct regulator *regulator)
+{
+	return REGULATOR_CONTROL_MODE_I2C;
 }
 
 static inline int regulator_register_notifier(struct regulator *regulator,

@@ -3,7 +3,7 @@
  *
  *  Copyright (C) 2001 Russell King
  *            (C) 2002 - 2003 Dominik Brodowski <linux@brodo.de>
- *
+ *  Copyright (c) 2012-2013, NVIDIA CORPORATION. All rights reserved.
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -105,8 +105,14 @@ struct cpufreq_policy {
 
 	struct cpufreq_real_policy	user_policy;
 
-	struct kobject		kobj;
+	struct kobject		*kobj;
 	struct completion	kobj_unregister;
+};
+
+/* contains per cpu sysfs info ./sys/devices/ssytem/cpu/cpu#/cpufreq */
+struct cpufreq_cpu_sysinfo {
+	struct cpufreq_policy *cpu_policy; /* policy for online cpu */
+	struct kobject cpu_kobj; /* per cpu kobject */
 };
 
 #define CPUFREQ_ADJUST		(0)
@@ -176,6 +182,10 @@ struct cpufreq_governor {
 					 char *buf);
 	int	(*store_setspeed)	(struct cpufreq_policy *policy,
 					 unsigned int freq);
+	ssize_t	(*show_dvfs_test)	(struct cpufreq_policy *policy,
+					 char *buf);
+	int 	(*start_dvfs_test)	(struct cpufreq_policy *policy,
+					 unsigned int enable);
 	unsigned int max_transition_latency; /* HW must be able to switch to
 			next freq faster than this value in nano secs or we
 			will fallback to performance governor */
@@ -311,6 +321,7 @@ __ATTR(_name, 0644, show_##_name, store_##_name)
  *********************************************************************/
 int cpufreq_get_policy(struct cpufreq_policy *policy, unsigned int cpu);
 int cpufreq_update_policy(unsigned int cpu);
+int cpufreq_set_gov(char *target_gov, unsigned int cpu);
 
 #ifdef CONFIG_CPU_FREQ
 /* query the current CPU frequency (in kHz). If zero, cpufreq couldn't detect it */
@@ -364,6 +375,9 @@ extern struct cpufreq_governor cpufreq_gov_ondemand;
 #elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_CONSERVATIVE)
 extern struct cpufreq_governor cpufreq_gov_conservative;
 #define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_conservative)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE)
+extern struct cpufreq_governor cpufreq_gov_interactive;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_interactive)
 #endif
 
 

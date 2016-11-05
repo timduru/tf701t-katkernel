@@ -39,7 +39,89 @@ DEFINE_EVENT(cpu, cpu_idle,
 #define _PWR_EVENT_AVOID_DOUBLE_DEFINING
 
 #define PWR_EVENT_EXIT -1
+
+enum {
+	CPU_SUSPEND_START,
+	CPU_SUSPEND_DONE
+};
+
+enum {
+	POWER_CPU_UP_START,
+	POWER_CPU_UP_DONE,
+	POWER_CPU_DOWN_START,
+	POWER_CPU_DOWN_DONE,
+};
+
+enum {
+	POWER_CPU_SCALE_START,
+	POWER_CPU_SCALE_DONE,
+};
+
 #endif
+
+TRACE_EVENT(cpu_suspend,
+
+	TP_PROTO(unsigned int state, unsigned int ts),
+
+	TP_ARGS(state, ts),
+
+	TP_STRUCT__entry(
+		__field(u32, state)
+		__field(u32, ts)
+	),
+
+	TP_fast_assign(
+		__entry->state = state;
+		__entry->ts = ts;
+	),
+
+	TP_printk("state %u, time %u", __entry->state, __entry->ts)
+);
+
+TRACE_EVENT(cpu_hotplug,
+
+	TP_PROTO(unsigned int cpu_id, int state),
+
+	TP_ARGS(cpu_id, state),
+
+	TP_STRUCT__entry(
+		__field(u32, cpu_id)
+		__field(u32, state)
+	),
+
+	TP_fast_assign(
+		__entry->cpu_id = cpu_id;
+		__entry->state = state;
+	),
+
+	TP_printk("cpu_id=%lu, state=%lu",
+		  (unsigned long)__entry->cpu_id,
+		  (unsigned long)__entry->state)
+);
+
+TRACE_EVENT(cpu_scale,
+
+	TP_PROTO(unsigned int cpu_id, unsigned int freq, int state),
+
+	TP_ARGS(cpu_id, freq, state),
+
+	TP_STRUCT__entry(
+		__field(u64, cpu_id)
+		__field(u32, freq)
+		__field(u32, state)
+	),
+
+	TP_fast_assign(
+		__entry->cpu_id = cpu_id;
+		__entry->freq = freq;
+		__entry->state = state;
+	),
+
+	TP_printk("cpu_id=%lu, freq=%lu, state=%lu",
+		  (unsigned long)__entry->cpu_id,
+		  (unsigned long)__entry->freq,
+		  (unsigned long)__entry->state)
+);
 
 DEFINE_EVENT(cpu, cpu_frequency,
 
@@ -63,6 +145,40 @@ TRACE_EVENT(machine_suspend,
 	),
 
 	TP_printk("state=%lu", (unsigned long)__entry->state)
+);
+
+DECLARE_EVENT_CLASS(wakeup_source,
+
+	TP_PROTO(const char *name, unsigned int state),
+
+	TP_ARGS(name, state),
+
+	TP_STRUCT__entry(
+		__string(       name,           name            )
+		__field(        u64,            state           )
+	),
+
+	TP_fast_assign(
+		__assign_str(name, name);
+		__entry->state = state;
+	),
+
+	TP_printk("%s state=0x%lx", __get_str(name),
+		(unsigned long)__entry->state)
+);
+
+DEFINE_EVENT(wakeup_source, wakeup_source_activate,
+
+	TP_PROTO(const char *name, unsigned int state),
+
+	TP_ARGS(name, state)
+);
+
+DEFINE_EVENT(wakeup_source, wakeup_source_deactivate,
+
+	TP_PROTO(const char *name, unsigned int state),
+
+	TP_ARGS(name, state)
 );
 
 #ifdef CONFIG_EVENT_POWER_TRACING_DEPRECATED
@@ -198,6 +314,53 @@ DEFINE_EVENT(clock, clock_disable,
 );
 
 DEFINE_EVENT(clock, clock_set_rate,
+
+	TP_PROTO(const char *name, unsigned int state, unsigned int cpu_id),
+
+	TP_ARGS(name, state, cpu_id)
+);
+
+TRACE_EVENT(clock_set_parent,
+
+	TP_PROTO(const char *name, const char *parent_name),
+
+	TP_ARGS(name, parent_name),
+
+	TP_STRUCT__entry(
+		__string(       name,           name            )
+		__string(       parent_name,    parent_name     )
+	),
+
+	TP_fast_assign(
+		__assign_str(name, name);
+		__assign_str(parent_name, parent_name);
+	),
+
+	TP_printk("%s parent=%s", __get_str(name), __get_str(parent_name))
+);
+
+DEFINE_EVENT(clock, clock_lock,
+
+	TP_PROTO(const char *name, unsigned int state, unsigned int cpu_id),
+
+	TP_ARGS(name, state, cpu_id)
+);
+
+DEFINE_EVENT(clock, clock_unlock,
+
+	TP_PROTO(const char *name, unsigned int state, unsigned int cpu_id),
+
+	TP_ARGS(name, state, cpu_id)
+);
+
+DEFINE_EVENT(clock, clock_set_start,
+
+	TP_PROTO(const char *name, unsigned int state, unsigned int cpu_id),
+
+	TP_ARGS(name, state, cpu_id)
+);
+
+DEFINE_EVENT(clock, clock_set_done,
 
 	TP_PROTO(const char *name, unsigned int state, unsigned int cpu_id),
 

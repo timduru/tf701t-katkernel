@@ -3,6 +3,17 @@
  *
  * Copyright (C) 2003,2004 Hewlett-Packard Company
  *
+ * Copyright (c) 2013, NVIDIA CORPORATION, All rights reserved.
+ *
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
  */
 
 #include <linux/module.h>
@@ -19,11 +30,32 @@
 #include <asm/backlight.h>
 #endif
 
+#include <asm/mach-types.h>
+
 static const char *const backlight_types[] = {
 	[BACKLIGHT_RAW] = "raw",
 	[BACKLIGHT_PLATFORM] = "platform",
 	[BACKLIGHT_FIRMWARE] = "firmware",
 };
+
+struct list_head backlight_devices;
+
+struct backlight_device *get_backlight_device_by_name(char *name)
+{
+	struct list_head *ptr;
+	struct backlight_device *entry = NULL;
+
+	if (!name)
+		return NULL;
+
+	list_for_each(ptr, &backlight_devices) {
+		entry = list_entry(ptr, struct backlight_device, devices_list);
+		if (strcmp(dev_name(&entry->dev), name) == 0)
+			return entry;
+	}
+	return entry;
+}
+EXPORT_SYMBOL(get_backlight_device_by_name);
 
 #if defined(CONFIG_FB) || (defined(CONFIG_FB_MODULE) && \
 			   defined(CONFIG_BACKLIGHT_CLASS_DEVICE_MODULE))
@@ -143,6 +175,19 @@ static ssize_t backlight_show_brightness(struct device *dev,
 	return sprintf(buf, "%d\n", bd->props.brightness);
 }
 
+static ssize_t haydn_backlight_show_brightness(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct backlight_device *bd = to_backlight_device(dev);
+
+	int brightness = 0;
+	mutex_lock(&bd->update_lock);
+	if (bd->ops && bd->ops->get_brightness)
+		brightness = bd->ops->get_brightness(bd);
+	mutex_unlock(&bd->update_lock);
+	return sprintf(buf, "%d\n", brightness);
+}
+
 static ssize_t backlight_store_brightness(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -161,7 +206,7 @@ static ssize_t backlight_store_brightness(struct device *dev,
 		if (brightness > bd->props.max_brightness)
 			rc = -EINVAL;
 		else {
-			pr_debug("backlight: set brightness to %lu\n",
+			pr_info("backlight: set brightness to %lu\n",
 				 brightness);
 			bd->props.brightness = brightness;
 			backlight_update_status(bd);
@@ -173,6 +218,43 @@ static ssize_t backlight_store_brightness(struct device *dev,
 	backlight_generate_event(bd, BACKLIGHT_UPDATE_SYSFS);
 
 	return rc;
+}
+
+/* haydn: for apps that change backlight temporarily,
+   do not store the brightness in scalar */
+extern int brightness_write_disable;
+static ssize_t haydn_backlight_store_brightness_overwrite(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc;
+	struct backlight_device *bd = to_backlight_device(dev);
+	unsigned long brightness;
+
+	rc = kstrtoul(buf, 0, &brightness);
+	if (rc)
+		return rc;
+
+	rc = -ENXIO;
+
+	mutex_lock(&bd->ops_lock);
+	if (bd->ops) {
+		if (brightness > bd->props.max_brightness)
+			rc = -EINVAL;
+		else {
+			printk("backlight overwrite: set brightness to %lu\n",
+				 brightness);
+			bd->props.brightness = brightness;
+			brightness_write_disable = 1;
+			backlight_update_status(bd);
+			rc = count;
+		}
+	}
+	mutex_unlock(&bd->ops_lock);
+
+	backlight_generate_event(bd, BACKLIGHT_UPDATE_SYSFS);
+
+	return rc;
+
 }
 
 static ssize_t backlight_show_type(struct device *dev,
@@ -203,6 +285,22 @@ static ssize_t backlight_show_actual_brightness(struct device *dev,
 	mutex_unlock(&bd->ops_lock);
 
 	return rc;
+}
+
+extern int pwm_backlight_get_brightness_with_sd(void);
+
+static ssize_t backlight_show_brightness_with_sd(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", pwm_backlight_get_brightness_with_sd());
+}
+
+extern ssize_t haydn_pwm_backlight_get_brightness_with_sd(char *buf);
+
+static ssize_t haydn_backlight_show_brightness_with_sd(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return haydn_pwm_backlight_get_brightness_with_sd(buf);
 }
 
 static struct class *backlight_class;
@@ -247,11 +345,27 @@ static struct device_attribute bl_device_attributes[] = {
 		     backlight_store_brightness),
 	__ATTR(actual_brightness, 0444, backlight_show_actual_brightness,
 		     NULL),
+	__ATTR(brightness_with_sd, 0444, backlight_show_brightness_with_sd,
+		     NULL),
 	__ATTR(max_brightness, 0444, backlight_show_max_brightness, NULL),
 	__ATTR(type, 0444, backlight_show_type, NULL),
 	__ATTR_NULL,
 };
 
+static struct device_attribute haydn_bl_device_attributes[] = {
+	__ATTR(bl_power, 0644, backlight_show_power, backlight_store_power),
+	__ATTR(brightness, 0644, haydn_backlight_show_brightness,
+		     backlight_store_brightness),
+	__ATTR(brightness_overwrite, 0644, haydn_backlight_show_brightness,
+			haydn_backlight_store_brightness_overwrite),
+	__ATTR(actual_brightness, 0444, backlight_show_actual_brightness,
+		     NULL),
+	__ATTR(brightness_with_sd, 0444, haydn_backlight_show_brightness_with_sd,
+		     NULL),
+	__ATTR(max_brightness, 0444, backlight_show_max_brightness, NULL),
+	__ATTR(type, 0444, backlight_show_type, NULL),
+	__ATTR_NULL,
+};
 /**
  * backlight_force_update - tell the backlight subsystem that hardware state
  *   has changed
@@ -332,6 +446,7 @@ struct backlight_device *backlight_device_register(const char *name,
 
 	new_bd->ops = ops;
 
+	list_add_tail(&new_bd->devices_list, &backlight_devices);
 #ifdef CONFIG_PMAC_BACKLIGHT
 	mutex_lock(&pmac_backlight_mutex);
 	if (!pmac_backlight)
@@ -383,9 +498,15 @@ static int __init backlight_class_init(void)
 		return PTR_ERR(backlight_class);
 	}
 
-	backlight_class->dev_attrs = bl_device_attributes;
+	if(machine_is_haydn()) {
+		backlight_class->dev_attrs = haydn_bl_device_attributes;
+	} else {
+		backlight_class->dev_attrs = bl_device_attributes;
+	}
 	backlight_class->suspend = backlight_suspend;
 	backlight_class->resume = backlight_resume;
+
+	INIT_LIST_HEAD(&backlight_devices);
 	return 0;
 }
 

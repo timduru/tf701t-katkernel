@@ -139,11 +139,39 @@ static void cdc_ncm_txpath_bh(unsigned long param);
 static void cdc_ncm_tx_timeout_start(struct cdc_ncm_ctx *ctx);
 static enum hrtimer_restart cdc_ncm_tx_timer_cb(struct hrtimer *hr_timer);
 static const struct driver_info cdc_ncm_info;
+static const struct driver_info cdc_mbm_info;
 static struct usb_driver cdc_ncm_driver;
 static const struct ethtool_ops cdc_ncm_ethtool_ops;
 
 static const struct usb_device_id cdc_devs[] = {
-	{ USB_INTERFACE_INFO(USB_CLASS_COMM,
+	{
+		/* Ericsson f5521gw */
+		.match_flags = USB_DEVICE_ID_MATCH_INT_INFO
+			| USB_DEVICE_ID_MATCH_DEVICE,
+		USB_DEVICE(0x0BDB,0x190D),
+		.driver_info = (unsigned long)&cdc_mbm_info,
+	},
+	{
+		/* Icera USB_PROFILE_IAD_5AN */
+		USB_DEVICE_AND_INTERFACE_INFO(0x1983, 0x0427, USB_CLASS_COMM,
+				USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&cdc_mbm_info,
+	},
+	{
+		/* Icera USB_PROFILE_IAD_5AN (BSD) */
+		USB_DEVICE_AND_INTERFACE_INFO(0x1983, 0x1005, USB_CLASS_COMM,
+				USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&cdc_mbm_info,
+	},
+	{
+		/* Icera Nemo */
+		USB_DEVICE_AND_INTERFACE_INFO(0x1983, 0x1007, USB_CLASS_COMM,
+				USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&cdc_mbm_info,
+	},
+	{
+		/* Standard NCM class device */
+		USB_INTERFACE_INFO(USB_CLASS_COMM,
 		USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
 		.driver_info = (unsigned long)&cdc_ncm_info,
 	},
@@ -1061,6 +1089,7 @@ static int cdc_ncm_rx_fixup(struct usbnet *dev, struct sk_buff *skb_in)
 			skb->len = len;
 			skb->data = ((u8 *)skb_in->data) + offset;
 			skb_set_tail_pointer(skb, len);
+			skb->truesize = len + sizeof(struct sk_buff);
 			usbnet_skb_return(dev, skb);
 		}
 	}
@@ -1194,6 +1223,18 @@ static int cdc_ncm_manage_power(struct usbnet *dev, int status)
 static const struct driver_info cdc_ncm_info = {
 	.description = "CDC NCM",
 	.flags = FLAG_POINTTOPOINT | FLAG_NO_SETINT | FLAG_MULTI_PACKET,
+	.bind = cdc_ncm_bind,
+	.unbind = cdc_ncm_unbind,
+	.check_connect = cdc_ncm_check_connect,
+	.manage_power = cdc_ncm_manage_power,
+	.status = cdc_ncm_status,
+	.rx_fixup = cdc_ncm_rx_fixup,
+	.tx_fixup = cdc_ncm_tx_fixup,
+};
+
+static const struct driver_info cdc_mbm_info = {
+	.description = "CDC NCM",
+	.flags = FLAG_RMNET | FLAG_NO_SETINT | FLAG_MULTI_PACKET,
 	.bind = cdc_ncm_bind,
 	.unbind = cdc_ncm_unbind,
 	.check_connect = cdc_ncm_check_connect,

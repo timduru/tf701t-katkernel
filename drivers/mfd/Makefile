@@ -52,7 +52,7 @@ obj-$(CONFIG_TWL4030_POWER)    += twl4030-power.o
 obj-$(CONFIG_MFD_TWL4030_AUDIO)	+= twl4030-audio.o
 obj-$(CONFIG_TWL6030_PWM)	+= twl6030-pwm.o
 obj-$(CONFIG_TWL6040_CORE)	+= twl6040-core.o twl6040-irq.o
-
+obj-$(CONFIG_AIC3XXX_CORE)	+= tlv320aic3xxx-i2c.o tlv320aic3xxx-spi.o tlv320aic3xxx-core.o tlv320aic3xxx-irq.o
 obj-$(CONFIG_MFD_MC13XXX)	+= mc13xxx-core.o
 
 obj-$(CONFIG_MFD_CORE)		+= mfd-core.o
@@ -71,10 +71,13 @@ obj-$(CONFIG_UCB1400_CORE)	+= ucb1400_core.o
 
 obj-$(CONFIG_PMIC_DA903X)	+= da903x.o
 
+obj-$(CONFIG_MFD_MAX8831)	+= max8831.o
+
 obj-$(CONFIG_PMIC_DA9052)	+= da9052-core.o
 obj-$(CONFIG_MFD_DA9052_SPI)	+= da9052-spi.o
 obj-$(CONFIG_MFD_DA9052_I2C)	+= da9052-i2c.o
 
+obj-$(CONFIG_MFD_MAX77665)	+= max77665.o
 max8925-objs			:= max8925-core.o max8925-i2c.o
 obj-$(CONFIG_MFD_MAX8925)	+= max8925.o
 obj-$(CONFIG_MFD_MAX8997)	+= max8997.o max8997-irq.o
@@ -115,4 +118,14 @@ obj-$(CONFIG_MFD_AAT2870_CORE)	+= aat2870-core.o
 obj-$(CONFIG_MFD_INTEL_MSIC)	+= intel_msic.o
 obj-$(CONFIG_MFD_RC5T583)	+= rc5t583.o rc5t583-irq.o
 obj-$(CONFIG_MFD_S5M_CORE)	+= s5m-core.o s5m-irq.o
+obj-$(CONFIG_MFD_TPS6591X)	+= tps6591x.o
+obj-$(CONFIG_MFD_TPS80031)	+= tps80031.o
+obj-$(CONFIG_GPADC_TPS80031)	+= tps8003x-gpadc.o
+obj-$(CONFIG_MFD_MAX8907C)	+= max8907c.o
+obj-$(CONFIG_MFD_MAX8907C)	+= max8907c-irq.o
+obj-$(CONFIG_MFD_MAX77663)	+= max77663-core.o
+obj-$(CONFIG_MFD_RICOH583)	+= ricoh583.o
 obj-$(CONFIG_MFD_ANATOP)	+= anatop-mfd.o
+obj-$(CONFIG_MFD_RC5T583)	+= rc5t583.o rc5t583-irq.o
+obj-$(CONFIG_MFD_PALMAS)	+= palmas.o
+obj-$(CONFIG_MFD_LM3533)	+= lm3533-core.o lm3533-ctrlbank.o

@@ -24,6 +24,8 @@
 #include <linux/slab.h>
 #include <asm/div64.h>
 #include <sound/max98088.h>
+#include <sound/jack.h>
+#include <linux/gpio.h>
 #include "max98088.h"
 
 enum max98088_type {
@@ -52,6 +54,10 @@ struct max98088_priv {
        unsigned int mic1pre;
        unsigned int mic2pre;
        unsigned int extmic_mode;
+       int irq;
+       struct snd_soc_jack *headset_jack;
+       unsigned int jk_sns;
+       int jack_report;
 };
 
 static const u8 max98088_reg[M98088_REG_CNT] = {
@@ -382,7 +388,7 @@ static struct {
        { 0xFF, 0xFF, 0 }, /* 2C right SPK mixer */
        { 0xFF, 0xFF, 0 }, /* 2D SPK control */
        { 0xFF, 0xFF, 0 }, /* 2E sidetone */
-       { 0xFF, 0xFF, 0 }, /* 2F DAI1 playback level */
+       { 0xFF, 0xFF, 1 }, /* 2F DAI1 playback level */
 
        { 0xFF, 0xFF, 0 }, /* 30 DAI1 playback level */
        { 0xFF, 0xFF, 0 }, /* 31 DAI2 playback level */
@@ -801,6 +807,7 @@ static const struct snd_kcontrol_new max98088_snd_controls[] = {
 
        SOC_SINGLE("THD Limiter Threshold", M98088_REG_46_THDLMT_CFG, 4, 15, 0),
        SOC_SINGLE("THD Limiter Time", M98088_REG_46_THDLMT_CFG, 0, 7, 0),
+       SOC_SINGLE("Digital Mic Enable", M98088_REG_48_CFG_MIC, 4, 3, 0),
 };
 
 /* Left speaker mixer switch */
@@ -1312,6 +1319,16 @@ static int max98088_dai1_hw_params(struct snd_pcm_substream *substream,
                snd_soc_update_bits(codec, M98088_REG_18_DAI1_FILTERS,
                        M98088_DAI_DHF, M98088_DAI_DHF);
 
+		if (rate > 24000)
+			snd_soc_update_bits(codec, M98088_REG_18_DAI1_FILTERS,
+				M98088_DAI_MODE, M98088_DAI_MODE);
+		else
+			snd_soc_update_bits(codec, M98088_REG_18_DAI1_FILTERS,
+				M98088_DAI_MODE, 0);
+
+		snd_soc_update_bits(codec, M98088_REG_18_DAI1_FILTERS,
+			M98088_DAI_AVFLT_MASK, 5<<M98088_DAI_AVFLT_SHIFT);
+
        snd_soc_update_bits(codec, M98088_REG_51_PWR_SYS, M98088_SHDNRUN,
                M98088_SHDNRUN);
 
@@ -1632,6 +1649,9 @@ static int max98088_set_bias_level(struct snd_soc_codec *codec,
                if (codec->dapm.bias_level == SND_SOC_BIAS_OFF)
                        max98088_sync_cache(codec);
 
+               snd_soc_update_bits(codec, M98088_REG_51_PWR_SYS,
+                               M98088_SHDNRUN, M98088_SHDNRUN);
+
                snd_soc_update_bits(codec, M98088_REG_4C_PWR_EN_IN,
                                M98088_MBEN, M98088_MBEN);
                break;
@@ -1639,6 +1659,8 @@ static int max98088_set_bias_level(struct snd_soc_codec *codec,
        case SND_SOC_BIAS_OFF:
                snd_soc_update_bits(codec, M98088_REG_4C_PWR_EN_IN,
                                M98088_MBEN, 0);
+               snd_soc_update_bits(codec, M98088_REG_51_PWR_SYS,
+                               M98088_SHDNRUN, 0);
                codec->cache_sync = 1;
                break;
        }
@@ -1681,6 +1703,7 @@ static struct snd_soc_dai_driver max98088_dai[] = {
                .formats = MAX98088_FORMATS,
        },
         .ops = &max98088_dai1_ops,
+		.symmetric_rates = 1,
 },
 {
        .name = "Aux",
@@ -1699,15 +1722,15 @@ static const char *eq_mode_name[] = {"EQ1 Mode", "EQ2 Mode"};
 
 static int max98088_get_channel(struct snd_soc_codec *codec, const char *name)
 {
-	int i;
+    int i;
 
-	for (i = 0; i < ARRAY_SIZE(eq_mode_name); i++)
-		if (strcmp(name, eq_mode_name[i]) == 0)
-			return i;
+    for (i = 0; i < ARRAY_SIZE(eq_mode_name); i++)
+        if (strcmp(name, eq_mode_name[i]) == 0)
+            return i;
 
-	/* Shouldn't happen */
-	dev_err(codec->dev, "Bad EQ channel name '%s'\n", name);
-	return -EINVAL;
+    /* Shouldn't happen */
+    dev_err(codec->dev, "Bad EQ channel name '%s'\n", name);
+    return -EINVAL;
 }
 
 static void max98088_setup_eq1(struct snd_soc_codec *codec)
@@ -1816,7 +1839,7 @@ static int max98088_put_eq_enum(struct snd_kcontrol *kcontrol,
        int sel = ucontrol->value.integer.value[0];
 
        if (channel < 0)
-	       return channel;
+           return channel;
 
        cdata = &max98088->dai[channel];
 
@@ -1846,7 +1869,7 @@ static int max98088_get_eq_enum(struct snd_kcontrol *kcontrol,
        struct max98088_cdata *cdata;
 
        if (channel < 0)
-	       return channel;
+           return channel;
 
        cdata = &max98088->dai[channel];
        ucontrol->value.enumerated.item[0] = cdata->eq_sel;
@@ -1918,6 +1941,7 @@ static void max98088_handle_pdata(struct snd_soc_codec *codec)
        struct max98088_priv *max98088 = snd_soc_codec_get_drvdata(codec);
        struct max98088_pdata *pdata = max98088->pdata;
        u8 regval = 0;
+       unsigned int debounce_time;
 
        if (!pdata) {
                dev_dbg(codec->dev, "No platform data\n");
@@ -1943,26 +1967,109 @@ static void max98088_handle_pdata(struct snd_soc_codec *codec)
        /* Configure equalizers */
        if (pdata->eq_cfgcnt)
                max98088_handle_eq_pdata(codec);
+
+       /* Configure the debounce time */
+       if (max98088->irq) {
+               switch (pdata->debounce_time_ms) {
+               case 25:
+                       debounce_time = M98088_JDEB_25;
+                       break;
+               case 50:
+                       debounce_time = M98088_JDEB_50;
+                       break;
+               case 100:
+                       debounce_time = M98088_JDEB_100;
+                       break;
+               case 200:
+               default:
+                       debounce_time = M98088_JDEB_200;
+               }
+               snd_soc_update_bits(codec, M98088_REG_4B_CFG_JACKDET,
+                       M98088_JDEB, debounce_time);
+       }
 }
 
-#ifdef CONFIG_PM
-static int max98088_suspend(struct snd_soc_codec *codec)
+int max98088_report_jack(struct snd_soc_codec *codec)
 {
-       max98088_set_bias_level(codec, SND_SOC_BIAS_OFF);
+       struct max98088_priv *max98088 = snd_soc_codec_get_drvdata(codec);
+       unsigned int jk_sns_curr;
+       int jack_report_curr = 0;
+
+       /* Read the Jack Status Register*/
+       jk_sns_curr = (snd_soc_read(codec, M98088_REG_02_JACK_STAUS))
+                                & (M98088_JKSNS_7 | M98088_JKSNS_6);
+
+       if (max98088->jk_sns == M98088_NONE && jk_sns_curr == M98088_HP)
+              jack_report_curr = SND_JACK_HEADPHONE;
+       else if (max98088->jk_sns == M98088_NONE && jk_sns_curr == M98088_HS)
+              jack_report_curr = SND_JACK_HEADSET;
+       else if ((max98088->jk_sns == M98088_HP || max98088->jk_sns == M98088_HS)
+              && jk_sns_curr == M98088_NONE)
+              jack_report_curr = 0;
+       else
+              jack_report_curr = max98088->jack_report;
+
+       max98088->jack_report = jack_report_curr;
+       max98088->jk_sns = jk_sns_curr;
+
+       snd_soc_jack_report(max98088->headset_jack,
+               jack_report_curr, SND_JACK_HEADSET);
 
        return 0;
 }
 
-static int max98088_resume(struct snd_soc_codec *codec)
+static irqreturn_t max98088_jack_handler(int irq, void *data)
 {
-       max98088_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
+       struct snd_soc_codec *codec = data;
+
+       /*clear the interrupt by reading the status register */
+       snd_soc_read(codec, M98088_REG_00_IRQ_STATUS);
+       max98088_report_jack(codec);
+
+       return IRQ_HANDLED;
+}
+
+int max98088_headset_detect(struct snd_soc_codec *codec,
+       struct snd_soc_jack *jack, enum snd_jack_types type)
+{
+       struct max98088_priv *max98088 = snd_soc_codec_get_drvdata(codec);
+       max98088->headset_jack = jack;
+       max98088->jk_sns = M98088_NONE;
+       max98088->jack_report = 0;
+
+       if (max98088->irq) {
+               if (type & SND_JACK_HEADSET) {
+                       /* headphone + microphone detection */
+                       snd_soc_update_bits(codec, M98088_REG_4E_BIAS_CNTL,
+                               M98088_JDWK, 0);
+               } else {
+                       /* headphone detection only*/
+                       snd_soc_update_bits(codec, M98088_REG_4E_BIAS_CNTL,
+                               M98088_JDWK, 1);
+               }
+               /* Enable the Jack Detection Circuitry */
+               snd_soc_update_bits(codec, M98088_REG_4B_CFG_JACKDET,
+                       M98088_JDETEN, M98088_JDETEN);
+
+               /*JDET is always set the first time JDETEN is set,
+               so clear it*/
+               snd_soc_read(codec, M98088_REG_00_IRQ_STATUS);
+
+               /*after setting JDETEN, JKSNS would be set after hw
+               debounce time so wait before reading the status*/
+               msleep(max98088->pdata->debounce_time_ms);
+
+               /*report jack status at boot-up*/
+               max98088_report_jack(codec);
+
+               /*Enable the jack detection interrupt*/
+               snd_soc_update_bits(codec, M98088_REG_0F_IRQ_ENABLE,
+                       M98088_IJDET, M98088_IJDET);
+       }
 
        return 0;
 }
-#else
-#define max98088_suspend NULL
-#define max98088_resume NULL
-#endif
+EXPORT_SYMBOL_GPL(max98088_headset_detect);
 
 static int max98088_probe(struct snd_soc_codec *codec)
 {
@@ -1971,6 +2078,7 @@ static int max98088_probe(struct snd_soc_codec *codec)
        int ret = 0;
 
        codec->cache_sync = 1;
+       codec->dapm.idle_bias_off = 1;
 
        ret = snd_soc_codec_set_cache_io(codec, 8, 8, SND_SOC_I2C);
        if (ret != 0) {
@@ -2001,12 +2109,25 @@ static int max98088_probe(struct snd_soc_codec *codec)
        max98088->mic2pre = 0;
 
        ret = snd_soc_read(codec, M98088_REG_FF_REV_ID);
-       if (ret < 0) {
+       if (ret != 0x40) {
                dev_err(codec->dev, "Failed to read device revision: %d\n",
                        ret);
+               ret = -ENODEV;
                goto err_access;
        }
        dev_info(codec->dev, "revision %c\n", ret - 0x40 + 'A');
+
+       if (max98088->irq) {
+               /* register an audio interrupt */
+		ret = request_threaded_irq(gpio_to_irq(max98088->irq), NULL,
+                       max98088_jack_handler,
+                       IRQF_TRIGGER_FALLING,
+                       "max98088", codec);
+               if (ret) {
+                       dev_err(codec->dev, "Failed to request IRQ: %d\n", ret);
+                       goto err_access;
+               }
+       }
 
        snd_soc_write(codec, M98088_REG_51_PWR_SYS, M98088_PWRSV);
 
@@ -2047,6 +2168,32 @@ static int max98088_remove(struct snd_soc_codec *codec)
        return 0;
 }
 
+#ifdef CONFIG_PM
+static int max98088_suspend(struct snd_soc_codec *codec)
+{
+    struct max98088_priv *max98088 = snd_soc_codec_get_drvdata(codec);
+
+    disable_irq(max98088->irq);
+    max98088_set_bias_level(codec, SND_SOC_BIAS_OFF);
+
+    return 0;
+}
+
+static int max98088_resume(struct snd_soc_codec *codec)
+{
+    struct max98088_priv *max98088 = snd_soc_codec_get_drvdata(codec);
+
+    max98088_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
+    max98088_report_jack(codec);
+    enable_irq(max98088->irq);
+
+    return 0;
+}
+#else
+#define max98088_suspend NULL
+#define max98088_resume NULL
+#endif
+
 static struct snd_soc_codec_driver soc_codec_dev_max98088 = {
        .probe   = max98088_probe,
        .remove  = max98088_remove,
@@ -2057,10 +2204,10 @@ static struct snd_soc_codec_driver soc_codec_dev_max98088 = {
        .reg_word_size = sizeof(u8),
        .reg_cache_default = max98088_reg,
        .volatile_register = max98088_volatile_register,
-	.dapm_widgets = max98088_dapm_widgets,
-	.num_dapm_widgets = ARRAY_SIZE(max98088_dapm_widgets),
-	.dapm_routes = max98088_audio_map,
-	.num_dapm_routes = ARRAY_SIZE(max98088_audio_map),
+    .dapm_widgets = max98088_dapm_widgets,
+    .num_dapm_widgets = ARRAY_SIZE(max98088_dapm_widgets),
+    .dapm_routes = max98088_audio_map,
+    .num_dapm_routes = ARRAY_SIZE(max98088_audio_map),
 };
 
 static int max98088_i2c_probe(struct i2c_client *i2c,
@@ -2070,7 +2217,7 @@ static int max98088_i2c_probe(struct i2c_client *i2c,
        int ret;
 
        max98088 = devm_kzalloc(&i2c->dev, sizeof(struct max98088_priv),
-			       GFP_KERNEL);
+                   GFP_KERNEL);
        if (max98088 == NULL)
                return -ENOMEM;
 
@@ -2078,6 +2225,7 @@ static int max98088_i2c_probe(struct i2c_client *i2c,
 
        i2c_set_clientdata(i2c, max98088);
        max98088->pdata = i2c->dev.platform_data;
+       max98088->irq = i2c->irq;
 
        ret = snd_soc_register_codec(&i2c->dev,
                        &soc_codec_dev_max98088, &max98088_dai[0], 2);

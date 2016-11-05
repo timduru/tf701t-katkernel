@@ -16,6 +16,7 @@
 #include <asm/shmparam.h>
 #include <asm/cachetype.h>
 #include <asm/outercache.h>
+#include <asm/rodata.h>
 
 #define CACHE_COLOUR(vaddr)	((vaddr & (SHMLBA - 1)) >> PAGE_SHIFT)
 
@@ -48,6 +49,13 @@
  *	flush_kern_all()
  *
  *		Unconditionally clean and invalidate the entire cache.
+ *
+ *     flush_kern_louis()
+ *
+ *             Flush data cache levels up to the level of unification
+ *             inner shareable and invalidate the I-cache.
+ *             Only needed from v7 onwards, falls back to flush_cache_all()
+ *             for all other processor versions.
  *
  *	flush_user_all()
  *
@@ -97,11 +105,12 @@
 struct cpu_cache_fns {
 	void (*flush_icache_all)(void);
 	void (*flush_kern_all)(void);
+	void (*flush_kern_louis)(void);
 	void (*flush_user_all)(void);
 	void (*flush_user_range)(unsigned long, unsigned long, unsigned int);
 
 	void (*coherent_kern_range)(unsigned long, unsigned long);
-	void (*coherent_user_range)(unsigned long, unsigned long);
+	int  (*coherent_user_range)(unsigned long, unsigned long);
 	void (*flush_kern_dcache_area)(void *, size_t);
 
 	void (*dma_map_area)(const void *, size_t, int);
@@ -119,6 +128,7 @@ extern struct cpu_cache_fns cpu_cache;
 
 #define __cpuc_flush_icache_all		cpu_cache.flush_icache_all
 #define __cpuc_flush_kern_all		cpu_cache.flush_kern_all
+#define __cpuc_flush_kern_louis		cpu_cache.flush_kern_louis
 #define __cpuc_flush_user_all		cpu_cache.flush_user_all
 #define __cpuc_flush_user_range		cpu_cache.flush_user_range
 #define __cpuc_coherent_kern_range	cpu_cache.coherent_kern_range
@@ -139,10 +149,11 @@ extern struct cpu_cache_fns cpu_cache;
 
 extern void __cpuc_flush_icache_all(void);
 extern void __cpuc_flush_kern_all(void);
+extern void __cpuc_flush_kern_louis(void);
 extern void __cpuc_flush_user_all(void);
 extern void __cpuc_flush_user_range(unsigned long, unsigned long, unsigned int);
 extern void __cpuc_coherent_kern_range(unsigned long, unsigned long);
-extern void __cpuc_coherent_user_range(unsigned long, unsigned long);
+extern int  __cpuc_coherent_user_range(unsigned long, unsigned long);
 extern void __cpuc_flush_dcache_area(void *, size_t);
 
 /*
@@ -203,6 +214,11 @@ static inline void __flush_icache_all(void)
 {
 	__flush_icache_preferred();
 }
+
+/*
+ * Flush caches up to Level of Unification Inner Shareable
+ */
+#define flush_cache_louis()		__cpuc_flush_kern_louis()
 
 #define flush_cache_all()		__cpuc_flush_kern_all()
 
@@ -345,5 +361,56 @@ static inline void flush_cache_vunmap(unsigned long start, unsigned long end)
 	if (!cache_is_vipt_nonaliasing())
 		flush_cache_all();
 }
+
+/*
+ * The set_memory_* API can be used to change various attributes of a virtual
+ * address range. The attributes include:
+ * Cachability   : UnCached, WriteCombining, WriteBack
+ * Executability : eXeutable, NoteXecutable
+ * Read/Write    : ReadOnly, ReadWrite
+ * Presence      : NotPresent
+ *
+ * Within a catagory, the attributes are mutually exclusive.
+ *
+ * The implementation of this API will take care of various aspects that
+ * are associated with changing such attributes, such as:
+ * - Flushing TLBs
+ * - Flushing CPU caches
+ * - Making sure aliases of the memory behind the mapping don't violate
+ *   coherency rules as defined by the CPU in the system.
+ *
+ * What this API does not do:
+ * - Provide exclusion between various callers - including callers that
+ *   operation on other mappings of the same physical page
+ * - Restore default attributes when a page is freed
+ * - Guarantee that mappings other than the requested one are
+ *   in any state, other than that these do not violate rules for
+ *   the CPU you have. Do not depend on any effects on other mappings,
+ *   CPUs other than the one you have may have more relaxed rules.
+ * The caller is required to take care of these.
+ */
+
+int set_memory_uc(unsigned long addr, int numpages);
+int set_memory_wc(unsigned long addr, int numpages);
+int set_memory_wb(unsigned long addr, int numpages);
+int set_memory_iwb(unsigned long addr, int numpages);
+int set_memory_x(unsigned long addr, int numpages);
+int set_memory_nx(unsigned long addr, int numpages);
+int set_memory_ro(unsigned long addr, int numpages);
+int set_memory_rw(unsigned long addr, int numpages);
+int set_memory_np(unsigned long addr, int numpages);
+int set_memory_4k(unsigned long addr, int numpages);
+
+int set_memory_array_uc(unsigned long *addr, int addrinarray);
+int set_memory_array_wc(unsigned long *addr, int addrinarray);
+int set_memory_array_wb(unsigned long *addr, int addrinarray);
+int set_memory_array_iwb(unsigned long *addr, int addrinarray);
+
+int set_pages_array_uc(struct page **pages, int addrinarray);
+int set_pages_array_wc(struct page **pages, int addrinarray);
+int set_pages_array_wb(struct page **pages, int addrinarray);
+int set_pages_array_iwb(struct page **pages, int addrinarray);
+
+extern size_t cache_maint_inner_threshold;
 
 #endif

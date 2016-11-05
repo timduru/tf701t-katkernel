@@ -56,8 +56,8 @@ static int __cpuidle_register_device(struct cpuidle_device *dev);
 static inline int cpuidle_enter(struct cpuidle_device *dev,
 				struct cpuidle_driver *drv, int index)
 {
-	struct cpuidle_state *target_state = &drv->states[index];
-	return target_state->enter(dev, drv, index);
+	struct cpuidle_state *target_state = &dev->states[index];
+	return target_state->enter(dev, index);
 }
 
 static inline int cpuidle_enter_tk(struct cpuidle_device *dev,
@@ -87,8 +87,8 @@ int cpuidle_play_dead(void)
 		return -ENODEV;
 
 	/* Find lowest-power state that supports long-term idle */
-	for (i = CPUIDLE_DRIVER_STATE_START; i < drv->state_count; i++) {
-		struct cpuidle_state *s = &drv->states[i];
+	for (i = CPUIDLE_DRIVER_STATE_START; i < dev->state_count; i++) {
+		struct cpuidle_state *s = &dev->states[i];
 
 		if (s->power_usage < power_usage && s->enter_dead) {
 			power_usage = s->power_usage;
@@ -97,7 +97,7 @@ int cpuidle_play_dead(void)
 	}
 
 	if (dead_state != -1)
-		return drv->states[dead_state].enter_dead(dev, dead_state);
+		return dev->states[dead_state].enter_dead(dev, dead_state);
 
 	return -ENODEV;
 }
@@ -111,7 +111,7 @@ int cpuidle_play_dead(void)
 int cpuidle_idle_call(void)
 {
 	struct cpuidle_device *dev = __this_cpu_read(cpuidle_devices);
-	struct cpuidle_driver *drv = cpuidle_get_driver();
+	struct cpuidle_state *target_state;
 	int next_state, entered_state;
 
 	if (off)
@@ -134,16 +134,18 @@ int cpuidle_idle_call(void)
 #endif
 
 	/* ask the governor for the next state */
-	next_state = cpuidle_curr_governor->select(drv, dev);
+	next_state = cpuidle_curr_governor->select(dev);
 	if (need_resched()) {
 		local_irq_enable();
 		return 0;
 	}
 
+	target_state = &dev->states[next_state];
+
 	trace_power_start_rcuidle(POWER_CSTATE, next_state, dev->cpu);
 	trace_cpu_idle_rcuidle(next_state, dev->cpu);
 
-	entered_state = cpuidle_enter_ops(dev, drv, next_state);
+	entered_state = target_state->enter(dev, next_state);
 
 	trace_power_end_rcuidle(dev->cpu);
 	trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, dev->cpu);
@@ -244,8 +246,7 @@ int cpuidle_wrap_enter(struct cpuidle_device *dev,
 }
 
 #ifdef CONFIG_ARCH_HAS_CPU_RELAX
-static int poll_idle(struct cpuidle_device *dev,
-		struct cpuidle_driver *drv, int index)
+static int poll_idle(struct cpuidle_device *dev, int index)
 {
 	ktime_t	t1, t2;
 	s64 diff;
@@ -265,9 +266,12 @@ static int poll_idle(struct cpuidle_device *dev,
 	return index;
 }
 
-static void poll_idle_init(struct cpuidle_driver *drv)
+static void poll_idle_init(struct cpuidle_device *dev)
 {
-	struct cpuidle_state *state = &drv->states[0];
+	struct cpuidle_state *state = &dev->states[0];
+	struct cpuidle_state_usage *state_usage = &dev->states_usage[0];
+
+	cpuidle_set_statedata(state_usage, NULL);
 
 	snprintf(state->name, CPUIDLE_NAME_LEN, "POLL");
 	snprintf(state->desc, CPUIDLE_DESC_LEN, "CPUIDLE CORE POLL IDLE");
@@ -276,10 +280,10 @@ static void poll_idle_init(struct cpuidle_driver *drv)
 	state->power_usage = -1;
 	state->flags = 0;
 	state->enter = poll_idle;
-	state->disable = 0;
+	state->disabled = false;
 }
 #else
-static void poll_idle_init(struct cpuidle_driver *drv) {}
+static void poll_idle_init(struct cpuidle_device *dev) {}
 #endif /* CONFIG_ARCH_HAS_CPU_RELAX */
 
 /**
@@ -299,7 +303,7 @@ int cpuidle_enable_device(struct cpuidle_device *dev)
 	if (!drv || !cpuidle_curr_governor)
 		return -EIO;
 	if (!dev->state_count)
-		dev->state_count = drv->state_count;
+		return -EINVAL;
 
 	if (dev->registered == 0) {
 		ret = __cpuidle_register_device(dev);
@@ -310,13 +314,13 @@ int cpuidle_enable_device(struct cpuidle_device *dev)
 	cpuidle_enter_ops = drv->en_core_tk_irqen ?
 		cpuidle_enter_tk : cpuidle_enter;
 
-	poll_idle_init(drv);
+	poll_idle_init(dev);
 
 	if ((ret = cpuidle_add_state_sysfs(dev)))
 		return ret;
 
 	if (cpuidle_curr_governor->enable &&
-	    (ret = cpuidle_curr_governor->enable(drv, dev)))
+	    (ret = cpuidle_curr_governor->enable(dev)))
 		goto fail_sysfs;
 
 	for (i = 0; i < dev->state_count; i++) {
@@ -357,7 +361,7 @@ void cpuidle_disable_device(struct cpuidle_device *dev)
 	dev->enabled = 0;
 
 	if (cpuidle_curr_governor->disable)
-		cpuidle_curr_governor->disable(cpuidle_get_driver(), dev);
+		cpuidle_curr_governor->disable(dev);
 
 	cpuidle_remove_state_sysfs(dev);
 	enabled_devices--;
@@ -385,15 +389,40 @@ static int __cpuidle_register_device(struct cpuidle_device *dev)
 
 	init_completion(&dev->kobj_unregister);
 
+	/*
+	 * cpuidle driver should set the dev->power_specified bit
+	 * before registering the device if the driver provides
+	 * power_usage numbers.
+	 *
+	 * For those devices whose ->power_specified is not set,
+	 * we fill in power_usage with decreasing values as the
+	 * cpuidle code has an implicit assumption that state Cn
+	 * uses less power than C(n-1).
+	 *
+	 * With CONFIG_ARCH_HAS_CPU_RELAX, C0 is already assigned
+	 * an power value of -1.  So we use -2, -3, etc, for other
+	 * c-states.
+	 */
+	if (!dev->power_specified) {
+		int i;
+		for (i = CPUIDLE_DRIVER_STATE_START; i < dev->state_count; i++)
+			dev->states[i].power_usage = -1 - i;
+	}
+
 	per_cpu(cpuidle_devices, dev->cpu) = dev;
 	list_add(&dev->device_list, &cpuidle_detected_devices);
-	if ((ret = cpuidle_add_sysfs(cpu_dev))) {
-		module_put(cpuidle_driver->owner);
-		return ret;
-	}
+	ret = cpuidle_add_sysfs(cpu_dev);
+	if (ret)
+		goto err_sysfs;
 
 	dev->registered = 1;
 	return 0;
+
+err_sysfs:
+	list_del(&dev->device_list);
+	per_cpu(cpuidle_devices, dev->cpu) = NULL;
+	module_put(cpuidle_driver->owner);
+	return ret;
 }
 
 /**

@@ -17,7 +17,8 @@
 
 struct sdhci_pltfm_data {
 	struct sdhci_ops *ops;
-	unsigned int quirks;
+	u32 quirks;
+	u32 quirks2;
 };
 
 struct sdhci_pltfm_host {

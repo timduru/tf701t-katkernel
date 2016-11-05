@@ -41,7 +41,8 @@ EXPORT_SYMBOL(elf_check_arch);
 void elf_set_personality(const struct elf32_hdr *x)
 {
 	unsigned int eflags = x->e_flags;
-	unsigned int personality = current->personality & ~PER_MASK;
+	unsigned int personality = current->personality &
+		~(PER_MASK | READ_IMPLIES_EXEC);
 
 	/*
 	 * We only support Linux ELF executables, so always set the

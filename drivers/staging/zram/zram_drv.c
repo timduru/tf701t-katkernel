@@ -104,35 +104,6 @@ static int page_zero_filled(void *ptr)
 	return 1;
 }
 
-static void zram_set_disksize(struct zram *zram, size_t totalram_bytes)
-{
-	if (!zram->disksize) {
-		pr_info(
-		"disk size not provided. You can use disksize_kb module "
-		"param to specify size.\nUsing default: (%u%% of RAM).\n",
-		default_disksize_perc_ram
-		);
-		zram->disksize = default_disksize_perc_ram *
-					(totalram_bytes / 100);
-	}
-
-	if (zram->disksize > 2 * (totalram_bytes)) {
-		pr_info(
-		"There is little point creating a zram of greater than "
-		"twice the size of memory since we expect a 2:1 compression "
-		"ratio. Note that zram uses about 0.1%% of the size of "
-		"the disk when not in use so a huge zram is "
-		"wasteful.\n"
-		"\tMemory Size: %zu kB\n"
-		"\tSize you selected: %llu kB\n"
-		"Continuing anyway ...\n",
-		totalram_bytes >> 10, zram->disksize
-		);
-	}
-
-	zram->disksize &= PAGE_MASK;
-}
-
 static void zram_free_page(struct zram *zram, size_t index)
 {
 	void *handle = zram->table[index].handle;
@@ -554,16 +525,13 @@ static void zram_make_request(struct request_queue *queue, struct bio *bio)
 {
 	struct zram *zram = queue->queuedata;
 
-	if (unlikely(!zram->init_done) && zram_init_device(zram))
-		goto error;
-
 	down_read(&zram->init_lock);
 	if (unlikely(!zram->init_done))
-		goto error_unlock;
+		goto error;
 
 	if (!valid_io_request(zram, bio)) {
 		zram_stat64_inc(zram, &zram->stats.invalid_io);
-		goto error_unlock;
+		goto error;
 	}
 
 	__zram_make_request(zram, bio, bio_data_dir(bio));
@@ -571,15 +539,17 @@ static void zram_make_request(struct request_queue *queue, struct bio *bio)
 
 	return;
 
-error_unlock:
-	up_read(&zram->init_lock);
 error:
+	up_read(&zram->init_lock);
 	bio_io_error(bio);
 }
 
 void __zram_reset_device(struct zram *zram)
 {
 	size_t index;
+
+	if (!zram->init_done)
+		return;
 
 	zram->init_done = 0;
 
@@ -612,6 +582,7 @@ void __zram_reset_device(struct zram *zram)
 	memset(&zram->stats, 0, sizeof(zram->stats));
 
 	zram->disksize = 0;
+	set_capacity(zram->disk, 0);
 }
 
 void zram_reset_device(struct zram *zram)
@@ -621,19 +592,25 @@ void zram_reset_device(struct zram *zram)
 	up_write(&zram->init_lock);
 }
 
+/* zram->init_lock should be held */
 int zram_init_device(struct zram *zram)
 {
 	int ret;
 	size_t num_pages;
 
-	down_write(&zram->init_lock);
-
-	if (zram->init_done) {
-		up_write(&zram->init_lock);
-		return 0;
+	if (zram->disksize > 2 * (totalram_pages << PAGE_SHIFT)) {
+		pr_info(
+		"There is little point creating a zram of greater than "
+		"twice the size of memory since we expect a 2:1 compression "
+		"ratio. Note that zram uses about 0.1%% of the size of "
+		"the disk when not in use so a huge zram is "
+		"wasteful.\n"
+		"\tMemory Size: %zu kB\n"
+		"\tSize you selected: %llu kB\n"
+		"Continuing anyway ...\n",
+		(totalram_pages << PAGE_SHIFT) >> 10, zram->disksize >> 10
+		);
 	}
-
-	zram_set_disksize(zram, totalram_pages << PAGE_SHIFT);
 
 	zram->compress_workmem = kzalloc(LZO1X_MEM_COMPRESS, GFP_KERNEL);
 	if (!zram->compress_workmem) {
@@ -658,8 +635,6 @@ int zram_init_device(struct zram *zram)
 		goto fail_no_table;
 	}
 
-	set_capacity(zram->disk, zram->disksize >> SECTOR_SHIFT);
-
 	/* zram devices sort of resembles non-rotational disks */
 	queue_flag_set_unlocked(QUEUE_FLAG_NONROT, zram->disk->queue);
 
@@ -671,7 +646,6 @@ int zram_init_device(struct zram *zram)
 	}
 
 	zram->init_done = 1;
-	up_write(&zram->init_lock);
 
 	pr_debug("Initialization done!\n");
 	return 0;
@@ -681,7 +655,6 @@ fail_no_table:
 	zram->disksize = 0;
 fail:
 	__zram_reset_device(zram);
-	up_write(&zram->init_lock);
 	pr_err("Initialization failed: err=%d\n", ret);
 	return ret;
 }
@@ -842,8 +815,7 @@ static void __exit zram_exit(void)
 		zram = &zram_devices[i];
 
 		destroy_device(zram);
-		if (zram->init_done)
-			zram_reset_device(zram);
+		zram_reset_device(zram);
 	}
 
 	unregister_blkdev(zram_major, "zram");

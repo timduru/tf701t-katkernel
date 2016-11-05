@@ -46,7 +46,13 @@ struct reg_default {
 /**
  * Configuration for the register map of a device.
  *
+ * @name: Optional name of the regmap. Useful when a device has multiple
+ *        register regions.
+ *
  * @reg_bits: Number of bits in a register address, mandatory.
+ * @reg_stride: The register address stride. Valid register addresses are a
+ *              multiple of this value. If set to 0, a value of 1 will be
+ *              used.
  * @pad_bits: Number of bits of padding between register and value.
  * @val_bits: Number of bits in a register value, mandatory.
  *
@@ -77,7 +83,10 @@ struct reg_default {
  * @num_reg_defaults_raw: Number of elements in reg_defaults_raw.
  */
 struct regmap_config {
+	const char *name;
+
 	int reg_bits;
+	int reg_stride;
 	int pad_bits;
 	int val_bits;
 
@@ -97,18 +106,21 @@ struct regmap_config {
 	u8 write_flag_mask;
 };
 
-typedef int (*regmap_hw_write)(struct device *dev, const void *data,
+typedef int (*regmap_hw_write)(void *context, const void *data,
 			       size_t count);
-typedef int (*regmap_hw_gather_write)(struct device *dev,
+typedef int (*regmap_hw_gather_write)(void *context,
 				      const void *reg, size_t reg_len,
 				      const void *val, size_t val_len);
-typedef int (*regmap_hw_read)(struct device *dev,
+typedef int (*regmap_hw_read)(void *context,
 			      const void *reg_buf, size_t reg_size,
 			      void *val_buf, size_t val_size);
+typedef void (*regmap_hw_free_context)(void *context);
 
 /**
  * Description of a hardware bus for the register map infrastructure.
  *
+ * @fast_io: Register IO is fast. Use a spinlock instead of a mutex
+ *           to perform locking.
  * @write: Write operation.
  * @gather_write: Write operation with split register/value, return -ENOTSUPP
  *                if not implemented  on a given device.
@@ -118,27 +130,37 @@ typedef int (*regmap_hw_read)(struct device *dev,
  *                  a read.
  */
 struct regmap_bus {
+	bool fast_io;
 	regmap_hw_write write;
 	regmap_hw_gather_write gather_write;
 	regmap_hw_read read;
+	regmap_hw_free_context free_context;
 	u8 read_flag_mask;
 };
 
 struct regmap *regmap_init(struct device *dev,
 			   const struct regmap_bus *bus,
+			   void *bus_context,
 			   const struct regmap_config *config);
 struct regmap *regmap_init_i2c(struct i2c_client *i2c,
 			       const struct regmap_config *config);
 struct regmap *regmap_init_spi(struct spi_device *dev,
 			       const struct regmap_config *config);
+struct regmap *regmap_init_mmio(struct device *dev,
+				void __iomem *regs,
+				const struct regmap_config *config);
 
 struct regmap *devm_regmap_init(struct device *dev,
 				const struct regmap_bus *bus,
+				void *bus_context,
 				const struct regmap_config *config);
 struct regmap *devm_regmap_init_i2c(struct i2c_client *i2c,
 				    const struct regmap_config *config);
 struct regmap *devm_regmap_init_spi(struct spi_device *dev,
 				    const struct regmap_config *config);
+struct regmap *devm_regmap_init_mmio(struct device *dev,
+				     void __iomem *regs,
+				     const struct regmap_config *config);
 
 void regmap_exit(struct regmap *map);
 int regmap_reinit_cache(struct regmap *map,
@@ -154,6 +176,8 @@ int regmap_raw_read(struct regmap *map, unsigned int reg,
 int regmap_bulk_read(struct regmap *map, unsigned int reg, void *val,
 		     size_t val_count);
 int regmap_update_bits(struct regmap *map, unsigned int reg,
+		       unsigned int mask, unsigned int val);
+int regmap_update_bits_lazy(struct regmap *map, unsigned int reg,
 		       unsigned int mask, unsigned int val);
 int regmap_update_bits_check(struct regmap *map, unsigned int reg,
 			     unsigned int mask, unsigned int val,
@@ -191,6 +215,8 @@ struct regmap_irq {
  * @status_base: Base status register address.
  * @mask_base:   Base mask register address.
  * @ack_base:    Base ack address.  If zero then the chip is clear on read.
+ * @wake_base:   Base address for wake enables.  If zero unsupported.
+ * @irq_reg_stride:  Stride to use for chips where registers are not contiguous.
  *
  * @num_regs:    Number of registers in each control bank.
  * @irqs:        Descriptors for individual IRQs.  Interrupt numbers are
@@ -203,6 +229,9 @@ struct regmap_irq_chip {
 	unsigned int status_base;
 	unsigned int mask_base;
 	unsigned int ack_base;
+	unsigned int wake_base;
+	unsigned int irq_reg_stride;
+	unsigned int mask_invert;
 
 	int num_regs;
 
@@ -213,10 +242,11 @@ struct regmap_irq_chip {
 struct regmap_irq_chip_data;
 
 int regmap_add_irq_chip(struct regmap *map, int irq, int irq_flags,
-			int irq_base, struct regmap_irq_chip *chip,
+			int irq_base, const struct regmap_irq_chip *chip,
 			struct regmap_irq_chip_data **data);
 void regmap_del_irq_chip(int irq, struct regmap_irq_chip_data *data);
 int regmap_irq_chip_get_base(struct regmap_irq_chip_data *data);
+int regmap_irq_get_virq(struct regmap_irq_chip_data *data, int irq);
 
 #else
 

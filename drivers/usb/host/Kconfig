@@ -41,6 +41,17 @@ config USB_XHCI_HCD_DEBUGGING
 
 	  If unsure, say N.
 
+config TEGRA_XUSB_PLATFORM
+	bool "Enable NVIDIA's Tegra XHCI host controller"
+	depends on USB_XHCI_HCD && ARCH_TEGRA
+	default n
+	---help---
+	  Say 'Y' to turn on support for NVIDIA xHCI Host controller
+	  driver.
+
+	  This will enable USB3.0 functionality on the USB3.0 ports.
+	  If unsure, say N.
+
 config USB_EHCI_HCD
 	tristate "EHCI HCD (USB 2.0) support"
 	depends on USB && USB_ARCH_HAS_EHCI
@@ -524,7 +535,7 @@ config USB_SL811_HCD
 	help
 	  The SL811HS is a single-port USB controller that supports either
 	  host side or peripheral side roles.  Enable this option if your
-	  board has this chip, and you want to use it as a host controller. 
+	  board has this chip, and you want to use it as a host controller.
 	  If unsure, say N.
 
 	  To compile this driver as a module, choose M here: the
@@ -638,3 +649,9 @@ config USB_OCTEON_OHCI
 config USB_OCTEON2_COMMON
 	bool
 	default y if USB_OCTEON_EHCI || USB_OCTEON_OHCI
+
+config USB_EHCI_ONOFF_FEATURE
+        boolean "EHCI ON/OFF Feature"
+        depends on USB && USB_EHCI_HCD
+        help
+          Enable support for turning EHCI Off and On

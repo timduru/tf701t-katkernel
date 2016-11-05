@@ -14,8 +14,8 @@
 #include <linux/platform_device.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
-#include "consumer.h"
-#include "types.h"
+#include <linux/iio/consumer.h>
+#include <linux/iio/types.h>
 
 /**
  * struct iio_hwmon_state - device instance state
@@ -52,7 +52,7 @@ static ssize_t iio_hwmon_read_val(struct device *dev,
 	 * the scale has changed.
 	 */
 	ret = iio_st_read_channel_raw(&state->channels[sattr->index],
-				      &val);
+				      &val, 0);
 	if (ret < 0)
 		return ret;
 

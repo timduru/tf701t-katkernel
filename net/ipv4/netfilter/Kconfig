@@ -123,6 +123,18 @@ config IP_NF_TARGET_REJECT
 
 	  To compile it as a module, choose M here.  If unsure, say N.
 
+config IP_NF_TARGET_REJECT_SKERR
+	bool "Force socket error when rejecting with icmp*"
+	depends on IP_NF_TARGET_REJECT
+	default n
+	help
+          This option enables turning a "--reject-with icmp*" into a matching
+          socket error also.
+	  The REJECT target normally allows sending an ICMP message. But it
+          leaves the local socket unaware of any ingress rejects.
+
+	  If unsure, say N.
+
 config IP_NF_TARGET_ULOG
 	tristate "ULOG target support"
 	default m if NETFILTER_ADVANCED=n
@@ -296,7 +308,7 @@ config IP_NF_TARGET_CLUSTERIP
 	  The CLUSTERIP target allows you to build load-balancing clusters of
 	  network servers without having a dedicated load-balancing
 	  router/server/switch.
-	
+
 	  To compile it as a module, choose M here.  If unsure, say N.
 
 config IP_NF_TARGET_ECN
@@ -305,7 +317,7 @@ config IP_NF_TARGET_ECN
 	depends on NETFILTER_ADVANCED
 	---help---
 	  This option adds a `ECN' target, which can be used in the iptables mangle
-	  table.  
+	  table.
 
 	  You can use this target to remove the ECN bits from the IPv4 header of
 	  an IP packet.  This is particularly useful, if you need to work around
@@ -330,7 +342,7 @@ config IP_NF_RAW
 	  This option adds a `raw' table to iptables. This table is the very
 	  first in the netfilter framework and hooks in at the PREROUTING
 	  and OUTPUT chains.
-	
+
 	  If you want to compile it as a module, say M here and read
 	  <file:Documentation/kbuild/modules.txt>.  If unsure, say `N'.
 
@@ -342,7 +354,7 @@ config IP_NF_SECURITY
 	help
 	  This option adds a `security' table to iptables, for use
 	  with Mandatory Access Control (MAC) policy.
-	 
+
 	  If unsure, say N.
 
 endif # IP_NF_IPTABLES

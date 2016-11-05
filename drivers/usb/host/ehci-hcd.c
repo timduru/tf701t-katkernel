@@ -206,7 +206,10 @@ static int tdi_in_host_mode (struct ehci_hcd *ehci)
 	u32 __iomem	*reg_ptr;
 	u32		tmp;
 
-	reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE);
+	if (ehci->has_hostpc)
+		reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE_EX);
+	else
+		reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE);
 	tmp = ehci_readl(ehci, reg_ptr);
 	return (tmp & 3) == USBMODE_CM_HC;
 }
@@ -326,7 +329,10 @@ static int ehci_reset (struct ehci_hcd *ehci)
 
 	command |= CMD_RESET;
 	dbg_cmd (ehci, "reset", command);
-	ehci_writel(ehci, command, &ehci->regs->command);
+#ifdef CONFIG_USB_EHCI_TEGRA
+	if (!ehci->controller_resets_phy)
+#endif
+		ehci_writel(ehci, command, &ehci->regs->command);
 	ehci->rh_state = EHCI_RH_HALTED;
 	ehci->next_statechange = jiffies;
 	retval = handshake (ehci, &ehci->regs->command,
@@ -347,8 +353,6 @@ static int ehci_reset (struct ehci_hcd *ehci)
 	if (ehci->debug)
 		dbgp_external_startup();
 
-	ehci->port_c_suspend = ehci->suspended_ports =
-			ehci->resuming_ports = 0;
 	return retval;
 }
 
@@ -495,12 +499,16 @@ static void ehci_shutdown(struct usb_hcd *hcd)
 {
 	struct ehci_hcd	*ehci = hcd_to_ehci(hcd);
 
+	pr_info("%s +\n", __func__);
+
 	del_timer_sync(&ehci->watchdog);
 	del_timer_sync(&ehci->iaa_watchdog);
 
 	spin_lock_irq(&ehci->lock);
 	ehci_silence_controller(ehci);
 	spin_unlock_irq(&ehci->lock);
+
+	pr_info("%s -\n", __func__);
 }
 
 static void ehci_port_power (struct ehci_hcd *ehci, int is_on)
@@ -948,9 +956,11 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 			 * like usb_port_resume() does.
 			 */
 			ehci->reset_done[i] = jiffies + msecs_to_jiffies(25);
-			set_bit(i, &ehci->resuming_ports);
 			ehci_dbg (ehci, "port %d remote wakeup\n", i + 1);
 			mod_timer(&hcd->rh_timer, ehci->reset_done[i]);
+#ifdef CONFIG_USB_EHCI_TEGRA
+			ehci->controller_remote_wakeup = true;
+#endif
 		}
 	}
 

@@ -157,9 +157,9 @@ config USB_ATMEL_USBA
 
 config USB_FSL_USB2
 	tristate "Freescale Highspeed USB DR Peripheral Controller"
-	depends on FSL_SOC || ARCH_MXC
+	depends on FSL_SOC || ARCH_MXC || ARCH_TEGRA
 	select USB_GADGET_DUALSPEED
-	select USB_FSL_MPH_DR_OF if OF
+	select USB_FSL_MPH_DR_OF if OF && FSL_SOC
 	help
 	   Some of Freescale PowerPC processors have a High Speed
 	   Dual-Role(DR) USB controller, which supports device mode.
@@ -192,6 +192,17 @@ config USB_OMAP
 
 	   Say "y" to link the driver statically, or "m" to build a
 	   dynamically linked module called "omap_udc" and force all
+	   gadget drivers to also be dynamically linked.
+
+config USB_TEGRA
+	tristate "Nvidia Highspeed USB 2.0 device controller"
+	depends on ARCH_TEGRA
+	select USB_GADGET_DUALSPEED
+	help
+	   Enables TEGRA USB 2.0 pheripheral driver.
+
+	   Say "y" to link the driver statically, or "m" to build a
+	   dynamically linked module called "tegra_udc" and force all
 	   gadget drivers to also be dynamically linked.
 
 config USB_PXA25X
@@ -845,6 +856,15 @@ config USB_G_PRINTER
 
 	  For more information, see Documentation/usb/gadget_printer.txt
 	  which includes sample code for accessing the device file.
+
+config USB_G_ANDROID
+	boolean "Android Composite Gadget"
+	help
+	  The Android Composite Gadget supports multiple USB
+	  functions: adb, acm, mass storage, mtp, accessory
+	  and rndis.
+	  Each function can be configured and enabled/disabled
+	  dynamically from userspace through a sysfs interface.
 
 config USB_CDC_COMPOSITE
 	tristate "CDC Composite Device (Ethernet and ACM)"

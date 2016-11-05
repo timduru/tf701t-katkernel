@@ -8,6 +8,7 @@
  * interface.
  *
  * Copyright (C) 2010 IBM Corperation
+ * Copyright (c) 2013, NVIDIA CORPORATION.  All rights reserved.
  *
  * Author: John Stultz <john.stultz@linaro.org>
  *
@@ -46,6 +47,8 @@ static struct alarm_base {
 static ktime_t freezer_delta;
 static DEFINE_SPINLOCK(freezer_delta_lock);
 
+static struct wakeup_source *ws;
+
 #ifdef CONFIG_RTC_CLASS
 /* rtc timer and device for setting alarm wakeups at suspend */
 static struct rtc_timer		rtctimer;
@@ -59,7 +62,7 @@ static DEFINE_SPINLOCK(rtcdev_lock);
  * If one has not already been chosen, it checks to see if a
  * functional rtc device is available.
  */
-static struct rtc_device *alarmtimer_get_rtcdev(void)
+struct rtc_device *alarmtimer_get_rtcdev(void)
 {
 	unsigned long flags;
 	struct rtc_device *ret;
@@ -115,10 +118,6 @@ static void alarmtimer_rtc_interface_remove(void)
 	class_interface_unregister(&alarmtimer_rtc_interface);
 }
 #else
-static inline struct rtc_device *alarmtimer_get_rtcdev(void)
-{
-	return NULL;
-}
 #define rtcdev (NULL)
 static inline int alarmtimer_rtc_interface_setup(void) { return 0; }
 static inline void alarmtimer_rtc_interface_remove(void) { }
@@ -250,6 +249,7 @@ static int alarmtimer_suspend(struct device *dev)
 	unsigned long flags;
 	struct rtc_device *rtc;
 	int i;
+	int ret;
 
 	spin_lock_irqsave(&freezer_delta_lock, flags);
 	min = freezer_delta;
@@ -279,8 +279,12 @@ static int alarmtimer_suspend(struct device *dev)
 	if (min.tv64 == 0)
 		return 0;
 
-	/* XXX - Should we enforce a minimum sleep time? */
-	WARN_ON(min.tv64 < NSEC_PER_SEC);
+	if (ktime_to_ns(min) < 2 * NSEC_PER_SEC) {
+		__pm_wakeup_event(ws, 2 * MSEC_PER_SEC);
+		dev_err(dev, "RTC waketime %lld less than 2 sec\n",
+			ktime_to_ns(min));
+		return -EBUSY;
+	}
 
 	/* Setup an rtc timer to fire that far in the future */
 	rtc_timer_cancel(rtc, &rtctimer);
@@ -288,9 +292,13 @@ static int alarmtimer_suspend(struct device *dev)
 	now = rtc_tm_to_ktime(tm);
 	now = ktime_add(now, min);
 
-	rtc_timer_start(rtc, &rtctimer, now, ktime_set(0, 0));
-
-	return 0;
+	/* Set alarm, if in the past reject suspend briefly to handle */
+	ret = rtc_timer_start(rtc, &rtctimer, now, ktime_set(0, 0));
+	if (ret < 0) {
+		dev_err(dev, "rtc_timer_start failed: %d\n", ret);
+		__pm_wakeup_event(ws, 1 * MSEC_PER_SEC);
+	}
+	return ret;
 }
 #else
 static int alarmtimer_suspend(struct device *dev)
@@ -821,6 +829,7 @@ static int __init alarmtimer_init(void)
 		error = PTR_ERR(pdev);
 		goto out_drv;
 	}
+	ws = wakeup_source_register("alarmtimer");
 	return 0;
 
 out_drv:

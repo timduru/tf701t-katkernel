@@ -11,6 +11,10 @@
 #include <linux/interrupt.h>
 #include <linux/completion.h>
 
+#define MMC_SLOW_WRITE_TIME	500000	/* time (us) */
+#define MMC_REFRESH_INTERVAL	60	/* time (s) */
+#define MMC_BKOPS_INTERVAL	2	/* time (s) */
+
 struct request;
 struct mmc_data;
 struct mmc_request;
@@ -18,6 +22,9 @@ struct mmc_request;
 struct mmc_command {
 	u32			opcode;
 	u32			arg;
+#define MMC_CMD23_ARG_REL_WR	(1 << 31)
+#define MMC_CMD23_ARG_PACKED	((0 << 31) | (1 << 30))
+#define MMC_CMD23_ARG_TAG_REQ	(1 << 29)
 	u32			resp[4];
 	unsigned int		flags;		/* expected response type */
 #define MMC_RSP_PRESENT	(1 << 0)
@@ -137,12 +144,17 @@ struct mmc_async_req;
 extern struct mmc_async_req *mmc_start_req(struct mmc_host *,
 					   struct mmc_async_req *, int *);
 extern int mmc_interrupt_hpi(struct mmc_card *);
+extern int mmc_bkops_start(struct mmc_card *card, bool is_synchronous);
+extern void mmc_bkops_completion_polling(struct work_struct *work);
+extern void mmc_refresh(unsigned long data);
+
 extern void mmc_wait_for_req(struct mmc_host *, struct mmc_request *);
 extern int mmc_wait_for_cmd(struct mmc_host *, struct mmc_command *, int);
 extern int mmc_app_cmd(struct mmc_host *, struct mmc_card *);
 extern int mmc_wait_for_app_cmd(struct mmc_host *, struct mmc_card *,
 	struct mmc_command *, int);
 extern int mmc_switch(struct mmc_card *, u8, u8, u8, unsigned int);
+extern int mmc_send_ext_csd(struct mmc_card *card, u8 *ext_csd);
 
 #define MMC_ERASE_ARG		0x00000000
 #define MMC_SECURE_ERASE_ARG	0x80000000

@@ -2366,27 +2366,30 @@ static int ath6kl_set_ies(struct ath6kl_vif *vif,
 	struct ath6kl *ar = vif->ar;
 	int res;
 
-	/* this also clears IE in fw if it's not set */
-	res = ath6kl_wmi_set_appie_cmd(ar->wmi, vif->fw_vif_idx,
-				       WMI_FRAME_BEACON,
-				       info->beacon_ies,
-				       info->beacon_ies_len);
-	if (res)
-		return res;
+	if (info->beacon_ies) {
+		res = ath6kl_wmi_set_appie_cmd(ar->wmi, vif->fw_vif_idx,
+					       WMI_FRAME_BEACON,
+					       info->beacon_ies,
+					       info->beacon_ies_len);
+		if (res)
+			return res;
+	}
 
-	/* this also clears IE in fw if it's not set */
-	res = ath6kl_set_ap_probe_resp_ies(vif, info->proberesp_ies,
-					   info->proberesp_ies_len);
-	if (res)
-		return res;
+	if (info->proberesp_ies) {
+		res = ath6kl_set_ap_probe_resp_ies(vif, info->proberesp_ies,
+						   info->proberesp_ies_len);
+		if (res)
+			return res;
+	}
 
-	/* this also clears IE in fw if it's not set */
-	res = ath6kl_wmi_set_appie_cmd(ar->wmi, vif->fw_vif_idx,
-				       WMI_FRAME_ASSOC_RESP,
-				       info->assocresp_ies,
-				       info->assocresp_ies_len);
-	if (res)
-		return res;
+	if (info->assocresp_ies) {
+		res = ath6kl_wmi_set_appie_cmd(ar->wmi, vif->fw_vif_idx,
+					       WMI_FRAME_ASSOC_RESP,
+					       info->assocresp_ies,
+					       info->assocresp_ies_len);
+		if (res)
+			return res;
+	}
 
 	return 0;
 }
@@ -2397,7 +2400,6 @@ static int ath6kl_start_ap(struct wiphy *wiphy, struct net_device *dev,
 	struct ath6kl *ar = ath6kl_priv(dev);
 	struct ath6kl_vif *vif = netdev_priv(dev);
 	struct ieee80211_mgmt *mgmt;
-	bool hidden = false;
 	u8 *ies;
 	int ies_len;
 	struct wmi_connect_cmd p;

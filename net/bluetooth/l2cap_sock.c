@@ -921,7 +921,8 @@ static void l2cap_sock_close_cb(void *data)
 {
 	struct sock *sk = data;
 
-	l2cap_sock_kill(sk);
+	if (!sock_flag(sk, SOCK_DEAD))
+		l2cap_sock_kill(sk);
 }
 
 static void l2cap_sock_state_change_cb(void *data, int state)

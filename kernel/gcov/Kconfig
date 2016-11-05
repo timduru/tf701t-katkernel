@@ -35,7 +35,7 @@ config GCOV_KERNEL
 config GCOV_PROFILE_ALL
 	bool "Profile entire Kernel"
 	depends on GCOV_KERNEL
-	depends on SUPERH || S390 || X86 || (PPC && EXPERIMENTAL) || MICROBLAZE
+	depends on SUPERH || S390 || X86 || (PPC && EXPERIMENTAL) || MICROBLAZE || ARM
 	default n
 	---help---
 	This options activates profiling for the entire kernel.
@@ -45,5 +45,22 @@ config GCOV_PROFILE_ALL
 	Note that a kernel compiled with profiling flags will be significantly
 	larger and run slower. Also be sure to exclude files from profiling
 	which are not linked to the kernel image to prevent linker errors.
+
+config GCOV_TOOLCHAIN_IS_ANDROID
+	bool "Use Android toolchain ABI for gcov instead of vanilla gcc ABI"
+	default n
+	---help---
+	This option must be set if a gcov-enabled kernel is being built with an
+	Android toolchain. The gcov ABI in Android gcc is not compatible with
+	vanilla gcc, and choosing this option incorrectly might lead to kernel
+	panics during boot or when dumping the gcov data.
+
+	If unsure, say N.
+
+config GCOV_CTORS
+	string
+	depends on CONSTRUCTORS
+	default ".init_array" if ARM && AEABI
+	default ".ctors"
 
 endmenu

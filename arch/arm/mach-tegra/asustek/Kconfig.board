@@ -1,0 +1,28 @@
+#
+# Include the specific Kconfig file for ASUSTek boards
+#
+
+config MACH_ASUSTEK_DUMMY
+	depends on ARCH_TEGRA_11x_SOC
+	select MACH_ASUSTEK
+	bool "NONE (No device)"
+	help
+	  Support for ASUSTek dummy device.
+
+config MACH_MOZART
+       bool "Mozart board"
+       depends on ARCH_TEGRA_11x_SOC
+       select MACH_HAS_SND_SOC_TEGRA_RT5639 if SND_SOC
+       select MACH_HAS_SND_SOC_TEGRA_RT5640 if SND_SOC
+       select EDP_FRAMEWORK
+       help
+         Support for NVIDIA MOZART development platform
+
+config MACH_HAYDN
+       bool "Haydn board"
+       depends on ARCH_TEGRA_11x_SOC
+       select MACH_HAS_SND_SOC_TEGRA_RT5639 if SND_SOC
+       select MACH_HAS_SND_SOC_TEGRA_RT5640 if SND_SOC
+       select EDP_FRAMEWORK
+       help
+         Support for NVIDIA HAYDN development platform
