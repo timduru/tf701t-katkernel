@@ -1936,7 +1936,7 @@ static int usb_enumerate_device(struct usb_device *udev)
 		if (err < 0) {
 			dev_err(&udev->dev, "can't read configurations, error %d\n",
 				err);
-			return err;
+			goto fail;
 		}
 	}
 
@@ -1947,12 +1947,8 @@ static int usb_enumerate_device(struct usb_device *udev)
 	udev->serial = usb_cache_string(udev, udev->descriptor.iSerialNumber);
 
 	err = usb_enumerate_device_otg(udev);
-	if (err < 0)
-		return err;
-
-//	usb_detect_interface_quirks(udev);
-
-	return 0;
+fail:
+	return err;
 }
 
 static void set_usb_port_removable(struct usb_device *udev)
