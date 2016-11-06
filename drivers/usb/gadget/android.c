@@ -1078,7 +1078,6 @@ static struct android_usb_function *supported_functions[] = {
 	&audio_source_function,
 	&nvusb_function,
 	&midi_function,
-	&uasp_function,
 	NULL
 };
 
