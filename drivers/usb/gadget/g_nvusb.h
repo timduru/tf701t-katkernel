@@ -24,7 +24,7 @@ extern unsigned buflen;
 extern const struct usb_descriptor_header *otg_desc[];
 
 /* common utilities */
-void free_ep_req(struct usb_ep *ep, struct usb_request *req);
+static void free_ep_req(struct usb_ep *ep, struct usb_request *req);
 void disable_endpoints(struct usb_composite_dev *cdev,
 		struct usb_ep *in, struct usb_ep *out);
 
