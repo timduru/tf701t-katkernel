@@ -1498,7 +1498,7 @@ static void asusdec_kp_sci(void){
 
 	ec_chip->keypad_data.input_keycode = asusdec_kp_sci_table[ec_signal];
 	if(ec_chip->keypad_data.input_keycode > 0){
-		ASUSPEC_NOTICE("input_keycode = 0x%x\n", ec_chip->keypad_data.input_keycode);
+		//ASUSPEC_NOTICE("input_keycode = 0x%x\n", ec_chip->keypad_data.input_keycode);
 
 		input_report_key(ec_chip->indev, ec_chip->keypad_data.input_keycode, 1);
 		input_sync(ec_chip->indev);
@@ -2512,7 +2512,7 @@ static void asusdec_kb_report_work_function(struct work_struct *dat)
 	        if(ec_chip->i2c_kb_data[i+5] > 0){//press key
 			ec_chip->keypad_data.input_keycode = asusdec_kp_key_mapping(ec_chip->i2c_kb_data[i+5]);
 			ec_chip->keypad_data.value = 1;
-	                ASUSPEC_NOTICE("keycode = 0x%x\n", ec_chip->keypad_data.input_keycode);
+	                //ASUSPEC_NOTICE("keycode = 0x%x\n", ec_chip->keypad_data.input_keycode);
 	                input_report_key(ec_chip->indev,
 				ec_chip->keypad_data.input_keycode, ec_chip->keypad_data.value);
 		}else if(ec_chip->i2c_kb_data[i+5] == 0){
@@ -2535,7 +2535,7 @@ static void asusdec_kb_report_work_function(struct work_struct *dat)
 			}
 			if(the_same_key == 0){
 				ec_chip->keypad_data.input_keycode = asusdec_kp_key_mapping(ec_chip->i2c_old_kb_data[i+5]);
-				ASUSPEC_INFO("release keycode = 0x%x\n", ec_chip->keypad_data.input_keycode);
+				//ASUSPEC_INFO("release keycode = 0x%x\n", ec_chip->keypad_data.input_keycode);
 				input_report_key(ec_chip->indev,
 					ec_chip->keypad_data.input_keycode, 0);
 			}
