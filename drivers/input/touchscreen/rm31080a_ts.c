@@ -1862,11 +1862,11 @@ static void rm_tch_early_resume(struct early_suspend *es)
 	}
 }
 //Power manager control suspend/resume
-//#else
-//static const struct dev_pm_ops rm_tch_pm_ops = {
-//	.suspend = rm_tch_suspend,
-//	.resume = rm_tch_resume,
-//};
+#else
+static const struct dev_pm_ops rm_tch_pm_ops = {
+	.suspend = rm_tch_suspend,
+	.resume = rm_tch_resume,
+};
 #endif			/*CONFIG_HAS_EARLYSUSPEND*/
 #endif			/*CONFIG_PM*/
 
@@ -2397,11 +2397,11 @@ static struct spi_driver rm_tch_spi_driver = {
 		.bus = &spi_bus_type,
 		.owner = THIS_MODULE,
 //Power manager control suspend/resume
-//#if !defined(CONFIG_HAS_EARLYSUSPEND)
-//#if defined(CONFIG_PM)
-//		.pm = &rm_tch_pm_ops,
-//#endif
-//#endif
+#if !defined(CONFIG_HAS_EARLYSUSPEND)
+#if defined(CONFIG_PM)
+		.pm = &rm_tch_pm_ops,
+#endif
+#endif
 	},
 	.probe = rm_tch_spi_probe,
 	.remove = __devexit_p(rm_tch_spi_remove),
