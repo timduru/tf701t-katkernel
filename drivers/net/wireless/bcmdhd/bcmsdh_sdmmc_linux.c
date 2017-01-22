@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: bcmsdh_sdmmc_linux.c 425711 2013-09-25 06:40:41Z $
+ * $Id: bcmsdh_sdmmc_linux.c 404103 2013-05-23 20:07:27Z $
  */
 
 #include <typedefs.h>
@@ -34,7 +34,6 @@
 
 #include <linux/mmc/core.h>
 #include <linux/mmc/card.h>
-#include <linux/mmc/host.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/mmc/sdio_ids.h>
 
@@ -103,9 +102,6 @@ PBCMSDH_SDMMC_INSTANCE gInstance;
 
 extern int bcmsdh_probe(struct device *dev);
 extern int bcmsdh_remove(struct device *dev);
-#if defined(CONFIG_WIFI_CONTROL_FUNC)
-extern int wifi_set_carddetect(int on);
-#endif
 extern volatile bool dhd_mmc_suspend;
 
 static int bcmsdh_sdmmc_probe(struct sdio_func *func,
@@ -113,11 +109,6 @@ static int bcmsdh_sdmmc_probe(struct sdio_func *func,
 {
 	int ret = 0;
 	static struct sdio_func sdio_func_0;
-
-#if defined(CONFIG_WIFI_CONTROL_FUNC)
-	/* sdio card detection is completed so stop card detection here */
-	wifi_set_carddetect(0);
-#endif
 
 	if (!gInstance)
 		return -EINVAL;
@@ -150,9 +141,6 @@ static int bcmsdh_sdmmc_probe(struct sdio_func *func,
 			ret = bcmsdh_probe(&func->dev);
 			if (ret < 0)
 				gInstance->func[2] = NULL;
-
-			if (mmc_power_save_host(func->card->host))
-				sd_err(("%s: card power save fail", __func__));
 		}
 	} else {
 		ret = -ENODEV;
@@ -193,9 +181,7 @@ static const struct sdio_device_id bcmsdh_sdmmc_ids[] = {
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4319) },
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4330) },
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4334) },
-#ifdef CONFIG_BCMDHD_CLAIM_BCM4324
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4324) },
-#endif
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_43239) },
 	{ SDIO_DEVICE_CLASS(SDIO_CLASS_NONE)		},
 	{ /* end: all zeroes */				},
@@ -266,10 +252,6 @@ static struct semaphore *notify_semaphore = NULL;
 static int dummy_probe(struct sdio_func *func,
                               const struct sdio_device_id *id)
 {
-	if (func && (func->num != 2)) {
-		return 0;
-	}
-
 	if (notify_semaphore)
 		up(notify_semaphore);
 	return 0;
@@ -294,7 +276,6 @@ int sdio_func_reg_notify(void* semaphore)
 
 void sdio_func_unreg_notify(void)
 {
-	OSL_SLEEP(15);
 	sdio_unregister_driver(&dummy_sdmmc_driver);
 }
 

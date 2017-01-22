@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: bcmsdh_sdmmc.c 427054 2013-10-02 03:38:35Z $
+ * $Id: bcmsdh_sdmmc.c 418714 2013-08-16 13:21:09Z $
  */
 #include <typedefs.h>
 
@@ -36,7 +36,6 @@
 
 #include <linux/mmc/core.h>
 #include <linux/mmc/card.h>
-#include <linux/mmc/host.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/mmc/sdio_ids.h>
 
@@ -282,33 +281,28 @@ sdioh_enable_func_intr(void)
 	return SDIOH_API_RC_SUCCESS;
 }
 
-#endif /* defined(OOB_INTR_ONLY) && defined(HW_OOB) */
-
 extern SDIOH_API_RC
-sdioh_disable_func_intr(int func)
+sdioh_disable_func_intr(void)
 {
 	uint8 reg;
 	int err;
 
-	if (gInstance->func[func]) {
-		sdio_claim_host(gInstance->func[func]);
-		reg = sdio_readb(gInstance->func[func], SDIOD_CCCR_INTEN, &err);
+	if (gInstance->func[0]) {
+		sdio_claim_host(gInstance->func[0]);
+		reg = sdio_readb(gInstance->func[0], SDIOD_CCCR_INTEN, &err);
 		if (err) {
 			sd_err(("%s: error for read SDIO_CCCR_IENx : 0x%x\n", __FUNCTION__, err));
-			sdio_release_host(gInstance->func[func]);
+			sdio_release_host(gInstance->func[0]);
 			return SDIOH_API_RC_FAIL;
 		}
-#if defined(HW_OOB)
+
 		reg &= ~(INTR_CTL_FUNC1_EN | INTR_CTL_FUNC2_EN);
-#else
-		reg &= ~(1 << func);
-#endif
 		/* Disable master interrupt with the last function interrupt */
 		if (!(reg & 0xFE))
 			reg = 0;
-		sdio_writeb(gInstance->func[func], reg, SDIOD_CCCR_INTEN, &err);
+		sdio_writeb(gInstance->func[0], reg, SDIOD_CCCR_INTEN, &err);
 
-		sdio_release_host(gInstance->func[func]);
+		sdio_release_host(gInstance->func[0]);
 		if (err) {
 			sd_err(("%s: error for write SDIO_CCCR_IENx : 0x%x\n", __FUNCTION__, err));
 			return SDIOH_API_RC_FAIL;
@@ -316,7 +310,7 @@ sdioh_disable_func_intr(int func)
 	}
 	return SDIOH_API_RC_SUCCESS;
 }
-
+#endif /* defined(OOB_INTR_ONLY) && defined(HW_OOB) */
 
 /* Configure callback to client when we recieve client interrupt */
 extern SDIOH_API_RC
@@ -358,9 +352,6 @@ sdioh_interrupt_deregister(sdioh_info_t *sd)
 
 #if !defined(OOB_INTR_ONLY)
 	if (gInstance->func[1]) {
-		sdioh_disable_func_intr(1);
-		/*Wait for the pending interrupts to be cleared*/
-		msleep(300);
 		/* register and unmask irq */
 		sdio_claim_host(gInstance->func[1]);
 		sdio_release_irq(gInstance->func[1]);
@@ -368,9 +359,6 @@ sdioh_interrupt_deregister(sdioh_info_t *sd)
 	}
 
 	if (gInstance->func[2]) {
-		sdioh_disable_func_intr(2);
-		/*Wait for the pending interrupts to be cleared*/
-		msleep(300);
 		/* Claim host controller F2 */
 		sdio_claim_host(gInstance->func[2]);
 		sdio_release_irq(gInstance->func[2]);
@@ -382,7 +370,7 @@ sdioh_interrupt_deregister(sdioh_info_t *sd)
 	sd->intr_handler = NULL;
 	sd->intr_handler_arg = NULL;
 #elif defined(HW_OOB)
-	sdioh_disable_func_intr(0);
+	sdioh_disable_func_intr();
 #endif /* !defined(OOB_INTR_ONLY) */
 	return SDIOH_API_RC_SUCCESS;
 }
@@ -1196,7 +1184,7 @@ sdioh_request_packet(sdioh_info_t *sd, uint fix_inc, uint write, uint func,
 		for (pnext = pkt; pnext; pnext = PKTNEXT(sd->osh, pnext)) {
 			uint8 *buf = (uint8*)PKTDATA(sd->osh, pnext) +
 				xfred_len;
-			int pad = 0;
+			uint pad = 0;
 			pkt_len = PKTLEN(sd->osh, pnext);
 			if (0 != xfred_len) {
 				pkt_len -= xfred_len;
@@ -1243,11 +1231,11 @@ txglomfail:
 				!need_txglom &&
 #endif
 				TRUE) {
-				int align_pkt_len = 0;
-				align_pkt_len = sdioh_request_packet_align(pkt_len, write,
+				pkt_len = sdioh_request_packet_align(pkt_len, write,
 					func, blk_size);
 
-				pad = align_pkt_len - pkt_len;
+				pad = pkt_len - PKTLEN(sd->osh, pnext);
+
 				if (pad > 0) {
 					if (func == SDIO_FUNC_2) {
 						sd_err(("%s: padding is unexpected! pkt_len %d,"
@@ -1538,9 +1526,7 @@ sdioh_start(sdioh_info_t *si, int stage)
 		   2.6.27. The implementation prior to that is buggy, and needs broadcom's
 		   patch for it
 		*/
-		ret = mmc_power_restore_host((gInstance->func[0])->card->host);
-
-		if (ret) {
+		if ((ret = sdio_reset_comm(gInstance->func[0]->card))) {
 			sd_err(("%s Failed, error = %d\n", __FUNCTION__, ret));
 			return ret;
 		}
@@ -1621,12 +1607,10 @@ sdioh_stop(sdioh_info_t *si)
 		sdio_release_host(gInstance->func[0]);
 #else /* defined(OOB_INTR_ONLY) */
 #if defined(HW_OOB)
-		sdioh_disable_func_intr(0);
+		sdioh_disable_func_intr();
 #endif
 		bcmsdh_oob_intr_set(FALSE);
 #endif /* !defined(OOB_INTR_ONLY) */
-		if (mmc_power_save_host((gInstance->func[0])->card->host))
-			sd_err(("%s card power save fail\n", __func__));
 	}
 	else
 		sd_err(("%s Failed\n", __FUNCTION__));

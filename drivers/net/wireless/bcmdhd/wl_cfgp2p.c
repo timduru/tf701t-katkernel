@@ -1,27 +1,9 @@
 /*
  * Linux cfgp2p driver
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
- * $Id: wl_cfgp2p.c 432088 2013-10-25 15:02:04Z $
+ * $Id: wl_cfgp2p.c 419821 2013-08-22 21:43:26Z $
  *
  */
 #include <typedefs.h>
@@ -157,6 +139,22 @@ bool wl_cfgp2p_is_gas_action(void *frame, u32 frame_len)
 	if (sd_act_frm->category != P2PSD_ACTION_CATEGORY)
 		return false;
 
+#ifdef WL11U
+	if (sd_act_frm->action == P2PSD_ACTION_ID_GAS_IRESP)
+		return wl_cfgp2p_find_gas_subtype(P2PSD_GAS_OUI_SUBTYPE,
+			(u8 *)sd_act_frm->query_data + GAS_RESP_OFFSET,
+			frame_len);
+
+	else if (sd_act_frm->action == P2PSD_ACTION_ID_GAS_CRESP)
+		return wl_cfgp2p_find_gas_subtype(P2PSD_GAS_OUI_SUBTYPE,
+			(u8 *)sd_act_frm->query_data + GAS_CRESP_OFFSET,
+			frame_len);
+	else if (sd_act_frm->action == P2PSD_ACTION_ID_GAS_IREQ ||
+		sd_act_frm->action == P2PSD_ACTION_ID_GAS_CREQ)
+		return true;
+	else
+		return false;
+#else
 	if (sd_act_frm->action == P2PSD_ACTION_ID_GAS_IREQ ||
 		sd_act_frm->action == P2PSD_ACTION_ID_GAS_IRESP ||
 		sd_act_frm->action == P2PSD_ACTION_ID_GAS_CREQ ||
@@ -164,6 +162,7 @@ bool wl_cfgp2p_is_gas_action(void *frame, u32 frame_len)
 		return true;
 	else
 		return false;
+#endif /* WL11U */
 }
 void wl_cfgp2p_print_actframe(bool tx, void *frame, u32 frame_len, u32 channel)
 {
@@ -559,16 +558,6 @@ wl_cfgp2p_set_p2p_mode(struct wl_priv *wl, u8 mode, u32 channel, u16 listen_ms, 
 		return BCME_NOTFOUND;
 	}
 
-#if defined(P2P_DISCOVERY_WAR)
-	if (mode == WL_P2P_DISC_ST_LISTEN || mode == WL_P2P_DISC_ST_SEARCH) {
-		if (!wl->p2p->vif_created) {
-			if (wldev_iovar_setint(wl_to_prmry_ndev(wl), "mpc", 0) < 0) {
-				WL_ERR(("mpc disabling failed\n"));
-			}
-		}
-	}
-#endif /* defined(P2P_DISCOVERY_WAR) */
-
 	/* Put the WL driver into P2P Listen Mode to respond to P2P probe reqs */
 	discovery_mode.state = mode;
 	discovery_mode.chspec = wl_ch_host_to_driver(channel);
@@ -953,7 +942,7 @@ wl_cfgp2p_act_frm_search(struct wl_priv *wl, struct net_device *ndev,
 
 	ret = wl_cfgp2p_escan(wl, ndev, true, chan_cnt,
 		default_chan_list, WL_P2P_DISC_ST_SEARCH,
-		WL_SCAN_ACTION_START, bssidx, NULL, p2p_scan_purpose);
+		WL_SCAN_ACTION_START, bssidx, tx_dst_addr, p2p_scan_purpose);
 	kfree(default_chan_list);
 exit:
 	return ret;
@@ -1532,14 +1521,6 @@ wl_cfgp2p_listen_complete(struct wl_priv *wl, bcm_struct_cfgdev *cfgdev,
 	CFGP2P_DBG((" Enter\n"));
 
 	ndev = cfgdev_to_wlc_ndev(cfgdev, wl);
-
-#if defined(P2P_DISCOVERY_WAR)
-	if (!wl->p2p->vif_created) {
-		if (wldev_iovar_setint(ndev, "mpc", 1) < 0) {
-			WL_ERR(("mpc enabling back failed\n"));
-		}
-	}
-#endif /* defined(P2P_DISCOVERY_WAR) */
 
 	if (wl_get_p2p_status(wl, LISTEN_EXPIRED) == 0) {
 		wl_set_p2p_status(wl, LISTEN_EXPIRED);
@@ -2384,9 +2365,7 @@ wl_cfgp2p_register_ndev(struct wl_priv *wl)
 	net->ethtool_ops = &cfgp2p_ethtool_ops;
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 24) */
 
-#ifndef CONFIG_BCMDHD_DISABLE_P2P_SYSFS_DEVICE_NODE
 	SET_NETDEV_DEV(net, wiphy_dev(wdev->wiphy));
-#endif
 
 	/* Associate p2p0 network interface with new wdev */
 	wdev->netdev = net;

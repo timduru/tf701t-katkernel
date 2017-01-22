@@ -1,25 +1,7 @@
 /*
  * Broadcom Dongle Host Driver (DHD), common DHD core.
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
  * $Id: dhd_common.c 419132 2013-08-19 21:33:05Z $
  */
@@ -45,6 +27,10 @@
 
 #ifdef WL_CFG80211
 #include <wl_cfg80211.h>
+#endif
+#ifdef WLBTAMP
+#include <proto/bt_amp_hci.h>
+#include <dhd_bta.h>
 #endif
 #ifdef PNO_SUPPORT
 #include <dhd_pno.h>
@@ -123,6 +109,10 @@ enum {
 	IOV_LOGSTAMP,
 	IOV_GPIOOB,
 	IOV_IOCTLTIMEOUT,
+#ifdef WLBTAMP
+	IOV_HCI_CMD,		/* HCI command */
+	IOV_HCI_ACL_DATA,	/* HCI data packet */
+#endif
 #if defined(DHD_DEBUG)
 	IOV_CONS,
 	IOV_DCONSOLE_POLL,
@@ -161,6 +151,10 @@ const bcm_iovar_t dhd_iovars[] = {
 	{"clearcounts", IOV_CLEARCOUNTS, 0, IOVT_VOID,	0 },
 	{"gpioob",	IOV_GPIOOB,	0,	IOVT_UINT32,	0 },
 	{"ioctl_timeout",	IOV_IOCTLTIMEOUT,	0,	IOVT_UINT32,	0 },
+#ifdef WLBTAMP
+	{"HCI_cmd",	IOV_HCI_CMD,	0,	IOVT_BUFFER,	0},
+	{"HCI_ACL_data", IOV_HCI_ACL_DATA, 0,	IOVT_BUFFER,	0},
+#endif
 #ifdef PROP_TXSTATUS
 	{"proptx",	IOV_PROPTXSTATUS_ENABLE,	0,	IOVT_UINT32,	0 },
 	/*
@@ -190,16 +184,16 @@ const bcm_iovar_t dhd_iovars[] = {
 void
 dhd_common_init(osl_t *osh)
 {
-#ifdef CONFIG_BCMDHD_FW_PATH
-	bcm_strncpy_s(fw_path, sizeof(fw_path), CONFIG_BCMDHD_FW_PATH, MOD_PARAM_PATHLEN-1);
-#else /* CONFIG_BCMDHD_FW_PATH */
+#ifdef CONFIG_BCM43XX_FW_PATH
+	bcm_strncpy_s(fw_path, sizeof(fw_path), CONFIG_BCM43XX_FW_PATH, MOD_PARAM_PATHLEN-1);
+#else /* CONFIG_BCM43XX_FW_PATH */
 	fw_path[0] = '\0';
-#endif /* CONFIG_BCMDHD_FW_PATH */
-#ifdef CONFIG_BCMDHD_NVRAM_PATH
-	bcm_strncpy_s(nv_path, sizeof(nv_path), CONFIG_BCMDHD_NVRAM_PATH, MOD_PARAM_PATHLEN-1);
-#else /* CONFIG_BCMDHD_NVRAM_PATH */
+#endif /* CONFIG_BCM43XX_FW_PATH */
+#ifdef CONFIG_BCM43XX_NVRAM_PATH
+	bcm_strncpy_s(nv_path, sizeof(nv_path), CONFIG_BCM43XX_NVRAM_PATH, MOD_PARAM_PATHLEN-1);
+#else /* CONFIG_BCM43XX_NVRAM_PATH */
 	nv_path[0] = '\0';
-#endif /* CONFIG_BCMDHD_NVRAM_PATH */
+#endif /* CONFIG_BCM43XX_NVRAM_PATH */
 #ifdef SOFTAP
 	fw_path2[0] = '\0';
 #endif
@@ -447,6 +441,37 @@ dhd_doiovar(dhd_pub_t *dhd_pub, const bcm_iovar_t *vi, uint32 actionid, const ch
 		break;
 	}
 
+#ifdef WLBTAMP
+	case IOV_SVAL(IOV_HCI_CMD): {
+		amp_hci_cmd_t *cmd = (amp_hci_cmd_t *)arg;
+
+		/* sanity check: command preamble present */
+		if (len < HCI_CMD_PREAMBLE_SIZE)
+			return BCME_BUFTOOSHORT;
+
+		/* sanity check: command parameters are present */
+		if (len < (int)(HCI_CMD_PREAMBLE_SIZE + cmd->plen))
+			return BCME_BUFTOOSHORT;
+
+		dhd_bta_docmd(dhd_pub, cmd, len);
+		break;
+	}
+
+	case IOV_SVAL(IOV_HCI_ACL_DATA): {
+		amp_hci_ACL_data_t *ACL_data = (amp_hci_ACL_data_t *)arg;
+
+		/* sanity check: HCI header present */
+		if (len < HCI_ACL_DATA_PREAMBLE_SIZE)
+			return BCME_BUFTOOSHORT;
+
+		/* sanity check: ACL data is present */
+		if (len < (int)(HCI_ACL_DATA_PREAMBLE_SIZE + ACL_data->dlen))
+			return BCME_BUFTOOSHORT;
+
+		dhd_bta_tx_hcidata(dhd_pub, ACL_data, len);
+		break;
+	}
+#endif /* WLBTAMP */
 
 #ifdef PROP_TXSTATUS
 	case IOV_GVAL(IOV_PROPTXSTATUS_ENABLE):
@@ -1832,6 +1857,10 @@ void
 dhd_sendup_event_common(dhd_pub_t *dhdp, wl_event_msg_t *event, void *data)
 {
 	switch (ntoh32(event->event_type)) {
+#ifdef WLBTAMP
+	case WLC_E_BTA_HCI_EVENT:
+		break;
+#endif /* WLBTAMP */
 	default:
 		break;
 	}

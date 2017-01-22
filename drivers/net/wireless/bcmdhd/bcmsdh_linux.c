@@ -1,25 +1,7 @@
 /*
  * SDIO access interface for drivers - linux specific (pci only)
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
  * $Id: bcmsdh_linux.c 414953 2013-07-26 17:36:27Z $
  */
@@ -35,6 +17,7 @@
 
 #include <linux/pci.h>
 #include <linux/completion.h>
+#include <linux/mmc/sdio_func.h>
 
 #include <osl.h>
 #include <pcicfg.h>
@@ -157,6 +140,7 @@ int bcmsdh_probe(struct device *dev)
 	bcmsdh_hc_t *sdhc = NULL, *sdhc_org = sdhcinfo;
 	ulong regs = 0;
 	bcmsdh_info_t *sdh = NULL;
+	struct sdio_func *func = container_of(dev, struct sdio_func, dev);
 #if !defined(BCMLXSDMMC) && defined(BCMPLATFORM_BUS)
 	struct platform_device *pdev;
 	struct resource *r;
@@ -239,8 +223,8 @@ int bcmsdh_probe(struct device *dev)
 	vendevid = bcmsdh_query_device(sdh);
 	/* try to attach to the target device */
 	if (!(sdhc->ch = drvinfo.attach((vendevid >> 16),
-	                                 (vendevid & 0xFFFF), 0, 0, 0, 0,
-	                                (void *)regs, NULL, sdh, dev))) {
+	                                 func->device, 0, 0, 0, 0,
+	                                (void *)regs, NULL, sdh))) {
 		SDLX_MSG(("%s: device attach failed\n", __FUNCTION__));
 		goto err;
 	}
@@ -479,7 +463,7 @@ bcmsdh_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* try to attach to the target device */
 	if (!(sdhc->ch = drvinfo.attach(VENDOR_BROADCOM, /* pdev->vendor, */
 	                                bcmsdh_query_device(sdh) & 0xFFFF, 0, 0, 0, 0,
-	                                (void *)regs, NULL, sdh, pdev->dev))) {
+	                                (void *)regs, NULL, sdh))) {
 		SDLX_MSG(("%s: device attach failed\n", __FUNCTION__));
 		goto err;
 	}
@@ -655,7 +639,13 @@ int bcmsdh_register_oob_intr(void * dhdp)
 		if (error)
 			return -ENODEV;
 
+#if defined(CONFIG_ARCH_RHEA) || defined(CONFIG_ARCH_CAPRI)
+		if (device_may_wakeup(sdhcinfo->dev)) {
+#endif
 			error = enable_irq_wake(sdhcinfo->oob_irq);
+#if defined(CONFIG_ARCH_RHEA) || defined(CONFIG_ARCH_CAPRI)
+		}
+#endif
 		if (error)
 			SDLX_MSG(("%s enable_irq_wake error=%d \n", __FUNCTION__, error));
 		sdhcinfo->oob_irq_registered = TRUE;
@@ -672,8 +662,14 @@ void bcmsdh_set_irq(int flag)
 		sdhcinfo->oob_irq_enable_flag = flag;
 		if (flag) {
 			enable_irq(sdhcinfo->oob_irq);
+#if defined(CONFIG_ARCH_RHEA) || defined(CONFIG_ARCH_CAPRI)
+			if (device_may_wakeup(sdhcinfo->dev))
+#endif
 				enable_irq_wake(sdhcinfo->oob_irq);
 		} else {
+#if defined(CONFIG_ARCH_RHEA) || defined(CONFIG_ARCH_CAPRI)
+			if (device_may_wakeup(sdhcinfo->dev))
+#endif
 				disable_irq_wake(sdhcinfo->oob_irq);
 			disable_irq(sdhcinfo->oob_irq);
 		}

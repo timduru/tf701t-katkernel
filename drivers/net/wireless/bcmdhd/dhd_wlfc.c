@@ -1,25 +1,7 @@
 /*
  * DHD PROP_TXSTATUS Module.
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
  * $Id: dhd_wlfc.c 412994 2013-07-17 12:38:03Z $
  *
@@ -2262,6 +2244,11 @@ int
 dhd_wlfc_init(dhd_pub_t *dhd)
 {
 	char iovbuf[12]; /* Room for "tlv" + '\0' + parameter */
+
+	if (!dhd) {
+		DHD_ERROR(("%s: dhd is null, return\n", __FUNCTION__));
+		return BCME_ERROR;
+	}
 	/* enable all signals & indicate host proptxstatus logic is active */
 	uint32 tlv = dhd->wlfc_enabled?
 		WLFC_FLAGS_RSSI_SIGNALS |
@@ -2416,6 +2403,10 @@ dhd_wlfc_cleanup(dhd_pub_t *dhd, ifpkt_cb_t fn, int arg)
 void
 dhd_wlfc_deinit(dhd_pub_t *dhd)
 {
+	if (!dhd) {
+		DHD_ERROR(("%s: dhd is null, return\n", __FUNCTION__));
+		return BCME_ERROR;
+	}
 	/* cleanup all psq related resources */
 	athost_wl_status_info_t* wlfc = (athost_wl_status_info_t*)
 		dhd->wlfc_state;

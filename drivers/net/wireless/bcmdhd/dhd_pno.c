@@ -2,27 +2,9 @@
  * Broadcom Dongle Host Driver (DHD)
  * Prefered Network Offload and Wi-Fi Location Service(WLS) code.
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
- * $Id: dhd_pno.c 427050 2013-10-02 03:31:11Z $
+ * $Id: dhd_pno.c 420056 2013-08-24 00:53:12Z $
  */
 #include <typedefs.h>
 #include <osl.h>
@@ -53,12 +35,12 @@
 #define htodchanspec(i) htod16(i)
 #define dtohchanspec(i) dtoh16(i)
 #else
-#define htod32(i) (i)
-#define htod16(i) (i)
-#define dtoh32(i) (i)
-#define dtoh16(i) (i)
-#define htodchanspec(i) (i)
-#define dtohchanspec(i) (i)
+#define htod32(i) i
+#define htod16(i) i
+#define dtoh32(i) i
+#define dtoh16(i) i
+#define htodchanspec(i) i
+#define dtohchanspec(i) i
 #endif /* IL_BIGENDINA */
 
 #define NULL_CHECK(p, s, err)  \
@@ -91,8 +73,8 @@ is_dfs(uint16 channel)
 	else
 		return FALSE;
 }
-int
-dhd_pno_clean(dhd_pub_t *dhd)
+static int
+_dhd_pno_clean(dhd_pub_t *dhd)
 {
 	int pfn = 0;
 	int err;
@@ -126,9 +108,7 @@ _dhd_pno_suspend(dhd_pub_t *dhd)
 	dhd_pno_status_info_t *_pno_state;
 	NULL_CHECK(dhd, "dhd is NULL", err);
 	NULL_CHECK(dhd->pno_state, "pno_state is NULL", err);
-
 	DHD_PNO(("%s enter\n", __FUNCTION__));
-	_pno_state = PNO_GET_PNOSTATE(dhd);
 	err = dhd_iovar(dhd, 0, "pfn_suspend", (char *)&suspend, sizeof(suspend), 1);
 	if (err < 0) {
 		DHD_ERROR(("%s : failed to suspend pfn(error :%d)\n", __FUNCTION__, err));
@@ -299,13 +279,13 @@ _dhd_pno_set(dhd_pub_t *dhd, const dhd_pno_params_t *pno_params, dhd_pno_mode_t 
 	if (mode == DHD_PNO_BATCH_MODE) {
 		int _tmp = pfn_param.bestn;
 		/* set bestn to calculate the max mscan which firmware supports */
-		err = dhd_iovar(dhd, 0, "pfnmem", (char *)&_tmp, sizeof(_tmp), 1);
+		err = dhd_iovar(dhd, 0, "pfnmscan", (char *)&_tmp, sizeof(_tmp), 1);
 		if (err < 0) {
 			DHD_ERROR(("%s : failed to set pfnmscan\n", __FUNCTION__));
 			goto exit;
 		}
 		/* get max mscan which the firmware supports */
-		err = dhd_iovar(dhd, 0, "pfnmem", (char *)&_tmp, sizeof(_tmp), 0);
+		err = dhd_iovar(dhd, 0, "pfnmscan", (char *)&_tmp, sizeof(_tmp), 0);
 		if (err < 0) {
 			DHD_ERROR(("%s : failed to get pfnmscan\n", __FUNCTION__));
 			goto exit;
@@ -766,7 +746,7 @@ dhd_pno_stop_for_ssid(dhd_pub_t *dhd)
 		dhd_pno_get_for_batch(dhd, NULL, 0, PNO_STATUS_DISABLE);
 		/* save current pno_mode before calling dhd_pno_clean */
 		mode = _pno_state->pno_mode;
-		dhd_pno_clean(dhd);
+		_dhd_pno_clean(dhd);
 		/* restore previous pno_mode */
 		_pno_state->pno_mode = mode;
 		if (_pno_state->pno_mode & DHD_PNO_BATCH_MODE) {
@@ -810,9 +790,9 @@ dhd_pno_stop_for_ssid(dhd_pub_t *dhd)
 			}
 		}
 	} else {
-		err = dhd_pno_clean(dhd);
+		err = _dhd_pno_clean(dhd);
 		if (err < 0) {
-			DHD_ERROR(("%s : failed to call dhd_pno_clean (err: %d)\n",
+			DHD_ERROR(("%s : failed to call _dhd_pno_clean (err: %d)\n",
 				__FUNCTION__, err));
 			goto exit;
 		}
@@ -1222,10 +1202,10 @@ _dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 		}
 		DHD_PNO(("ver %d, status : %d, count %d\n", plbestnet->version,
 			plbestnet->status, plbestnet->count));
-		if (plbestnet->version != PFN_SCANRESULT_VERSION) {
+		if (plbestnet->version != PFN_LSCANRESULT_VERSION) {
 			err = BCME_VERSION;
 			DHD_ERROR(("bestnet version(%d) is mismatch with Driver version(%d)\n",
-				plbestnet->version, PFN_SCANRESULT_VERSION));
+				plbestnet->version, PFN_LSCANRESULT_VERSION));
 			goto exit;
 		}
 		plnetinfo = plbestnet->netinfo;
@@ -1237,7 +1217,6 @@ _dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 				DHD_ERROR(("failed to allocate dhd_pno_bestnet_entry\n"));
 				goto exit;
 			}
-			memset(pbestnet_entry, 0, BESTNET_ENTRY_SIZE);
 			pbestnet_entry->recorded_time = jiffies; /* record the current time */
 			/* create header for the first entry */
 			allocate_header = (i == 0)? TRUE : FALSE;
@@ -1278,11 +1257,11 @@ _dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 			/* fills the best network info */
 			pbestnet_entry->channel = plnetinfo->pfnsubnet.channel;
 			pbestnet_entry->RSSI = plnetinfo->RSSI;
-			if (plnetinfo->flags & PFN_PARTIAL_SCAN_MASK) {
+			if (pbestnet_entry->RSSI > 0) {
 				/* if RSSI is positive value, we assume that
 				 * this scan is aborted by other scan
 				 */
-				DHD_PNO(("This scan is aborted\n"));
+				pbestnet_entry->RSSI *= -1;
 				pbestnetheader->reason = (ENABLE << PNO_STATUS_ABORT);
 			}
 			pbestnet_entry->rtt0 = plnetinfo->rtt0;
@@ -1316,15 +1295,6 @@ _dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 			plnetinfo++;
 		}
 	}
-	if (pscan_results->cnt_header == 0) {
-		/* In case that we didn't get any data from the firmware
-		 * Remove the current scan_result list from get_bach.scan_results_list.
-		 */
-		DHD_PNO(("NO BATCH DATA from Firmware, Delete current SCAN RESULT LIST\n"));
-		list_del(&pscan_results->list);
-		MFREE(dhd->osh, pscan_results, SCAN_RESULTS_SIZE);
-		_params->params_batch.get_batch.top_node_cnt--;
-	}
 	/* increase total scan count using current scan count */
 	_params->params_batch.get_batch.tot_scan_cnt += pscan_results->cnt_header;
 
@@ -1344,23 +1314,21 @@ _dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 			_params->params_batch.get_batch.tot_scan_cnt = 0;
 		}
 convert_format:
-		err = _dhd_pno_convert_format(dhd, &_params->params_batch, buf, bufsize);
-		if (err < 0) {
-			DHD_ERROR(("failed to convert the data into upper layer format\n"));
-			goto exit;
+		if (!list_empty(&_params->params_batch.get_batch.expired_scan_results_list)) {
+			err = _dhd_pno_convert_format(dhd, &_params->params_batch, buf, bufsize);
+			if (err < 0) {
+				DHD_ERROR(("failed to convert the data into upper layer format\n"));
+				goto exit;
+			}
 		}
 	}
 exit:
 	if (plbestnet)
 		MFREE(dhd->osh, plbestnet, PNO_BESTNET_LEN);
-	if (_params) {
-		_params->params_batch.get_batch.buf = NULL;
-		_params->params_batch.get_batch.bufsize = 0;
-		_params->params_batch.get_batch.bytes_written = err;
-	}
+	_params->params_batch.get_batch.buf = NULL;
+	_params->params_batch.get_batch.bufsize = 0;
 	mutex_unlock(&_pno_state->pno_mutex);
-	if (waitqueue_active(&_pno_state->get_batch_done.wait))
-		complete(&_pno_state->get_batch_done);
+	complete(&_pno_state->get_batch_done);
 	return err;
 }
 static void
@@ -1386,7 +1354,6 @@ int
 dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 {
 	int err = BCME_OK;
-	char *pbuf = buf;
 	dhd_pno_status_info_t *_pno_state;
 	struct dhd_pno_batch_params *params_batch;
 	NULL_CHECK(dhd, "dhd is NULL", err);
@@ -1406,19 +1373,13 @@ dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 	params_batch = &_pno_state->pno_params_arr[INDEX_OF_BATCH_PARAMS].params_batch;
 	if (!(_pno_state->pno_mode & DHD_PNO_BATCH_MODE)) {
 		DHD_ERROR(("%s: Batching SCAN mode is not enabled\n", __FUNCTION__));
-		memset(pbuf, 0, bufsize);
-		pbuf += sprintf(pbuf, "scancount=%d\n", 0);
-		sprintf(pbuf, "%s", RESULTS_END_MARKER);
-		err = strlen(buf);
 		goto exit;
 	}
 	params_batch->get_batch.buf = buf;
 	params_batch->get_batch.bufsize = bufsize;
 	params_batch->get_batch.reason = reason;
-	params_batch->get_batch.bytes_written = 0;
 	schedule_work(&_pno_state->work);
 	wait_for_completion(&_pno_state->get_batch_done);
-	err = params_batch->get_batch.bytes_written;
 exit:
 	return err;
 }
@@ -1454,7 +1415,7 @@ dhd_pno_stop_for_batch(dhd_pub_t *dhd)
 	_pno_state->pno_mode &= ~DHD_PNO_BATCH_MODE;
 	if (_pno_state->pno_mode & (DHD_PNO_LEGACY_MODE | DHD_PNO_HOTLIST_MODE)) {
 		mode = _pno_state->pno_mode;
-		dhd_pno_clean(dhd);
+		_dhd_pno_clean(dhd);
 		_pno_state->pno_mode = mode;
 		/* restart Legacy PNO if the Legacy PNO is on */
 		if (_pno_state->pno_mode & DHD_PNO_LEGACY_MODE) {
@@ -1518,9 +1479,9 @@ dhd_pno_stop_for_batch(dhd_pub_t *dhd)
 			}
 		}
 	} else {
-		err = dhd_pno_clean(dhd);
+		err = _dhd_pno_clean(dhd);
 		if (err < 0) {
-			DHD_ERROR(("%s : failed to call dhd_pno_clean (err: %d)\n",
+			DHD_ERROR(("%s : failed to call _dhd_pno_clean (err: %d)\n",
 				__FUNCTION__, err));
 			goto exit;
 		}
@@ -1713,9 +1674,9 @@ dhd_pno_stop_for_hotlist(dhd_pub_t *dhd)
 		dhd_pno_get_for_batch(dhd, NULL, 0, PNO_STATUS_DISABLE);
 		/* save current pno_mode before calling dhd_pno_clean */
 		mode = _pno_state->pno_mode;
-		err = dhd_pno_clean(dhd);
+		err = _dhd_pno_clean(dhd);
 		if (err < 0) {
-			DHD_ERROR(("%s : failed to call dhd_pno_clean (err: %d)\n",
+			DHD_ERROR(("%s : failed to call _dhd_pno_clean (err: %d)\n",
 				__FUNCTION__, err));
 			goto exit;
 		}
@@ -1765,9 +1726,9 @@ dhd_pno_stop_for_hotlist(dhd_pub_t *dhd)
 			}
 		}
 	} else {
-		err = dhd_pno_clean(dhd);
+		err = _dhd_pno_clean(dhd);
 		if (err < 0) {
-			DHD_ERROR(("%s : failed to call dhd_pno_clean (err: %d)\n",
+			DHD_ERROR(("%s : failed to call _dhd_pno_clean (err: %d)\n",
 				__FUNCTION__, err));
 			goto exit;
 		}
@@ -1804,15 +1765,11 @@ dhd_pno_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 	{
 		struct dhd_pno_batch_params *params_batch;
 		params_batch = &_pno_state->pno_params_arr[INDEX_OF_BATCH_PARAMS].params_batch;
-		if (!waitqueue_active(&_pno_state->get_batch_done.wait)) {
-			DHD_PNO(("%s : WLC_E_PFN_BEST_BATCHING\n", __FUNCTION__));
-			params_batch->get_batch.buf = NULL;
-			params_batch->get_batch.bufsize = 0;
-			params_batch->get_batch.reason = PNO_STATUS_EVENT;
-			schedule_work(&_pno_state->work);
-		} else
-			DHD_PNO(("%s : WLC_E_PFN_BEST_BATCHING"
-				"will skip this event\n", __FUNCTION__));
+		DHD_PNO(("%s : WLC_E_PFN_BEST_BATCHING\n", __FUNCTION__));
+		params_batch->get_batch.buf = NULL;
+		params_batch->get_batch.bufsize = 0;
+		params_batch->get_batch.reason = PNO_STATUS_EVENT;
+		schedule_work(&_pno_state->work);
 		break;
 	}
 	default:
@@ -1832,8 +1789,8 @@ int dhd_pno_init(dhd_pub_t *dhd)
 	if (dhd->pno_state)
 		goto exit;
 	dhd->pno_state = MALLOC(dhd->osh, sizeof(dhd_pno_status_info_t));
-	NULL_CHECK(dhd->pno_state, "failed to create dhd_pno_state", err);
 	memset(dhd->pno_state, 0, sizeof(dhd_pno_status_info_t));
+	NULL_CHECK(dhd, "failed to create dhd_pno_state", err);
 	/* need to check whether current firmware support batching and hotlist scan */
 	_pno_state = PNO_GET_PNOSTATE(dhd);
 	_pno_state->wls_supported = TRUE;
@@ -1853,20 +1810,12 @@ exit:
 int dhd_pno_deinit(dhd_pub_t *dhd)
 {
 	int err = BCME_OK;
-	dhd_pno_status_info_t *_pno_state;
-	dhd_pno_params_t *_params;
+	dhd_pno_status_info_t *_pno_state = PNO_GET_PNOSTATE(dhd);
 	NULL_CHECK(dhd, "dhd is NULL", err);
-
 	DHD_PNO(("%s enter\n", __FUNCTION__));
-	_pno_state = PNO_GET_PNOSTATE(dhd);
-	NULL_CHECK(_pno_state, "pno_state is NULL", err);
-	if (_pno_state->pno_mode & DHD_PNO_BATCH_MODE) {
-		_params = &_pno_state->pno_params_arr[INDEX_OF_BATCH_PARAMS];
-		/* clear resource if the BATCH MODE is on */
-		_dhd_pno_reinitialize_prof(dhd, _params, DHD_PNO_BATCH_MODE);
-	}
 	cancel_work_sync(&_pno_state->work);
-	MFREE(dhd->osh, _pno_state, sizeof(dhd_pno_status_info_t));
+	if (dhd->pno_state)
+		MFREE(dhd->osh, dhd->pno_state, sizeof(dhd_pno_status_info_t));
 	dhd->pno_state = NULL;
 	return err;
 }

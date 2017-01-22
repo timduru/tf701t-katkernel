@@ -4,27 +4,9 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 1999-2013, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
- * $Id: dhd.h 432432 2013-10-28 15:52:47Z $
+ * $Id: dhd.h 419132 2013-08-19 21:33:05Z $
  */
 
 /****************
@@ -59,10 +41,10 @@ int setScheduler(struct task_struct *p, int policy, struct sched_param *param);
 #include <wlioctl.h>
 #include <wlfc_proto.h>
 
-#if 0 && (0>= 0x0600)
+#if defined(NDISVER) && (NDISVER >= 0x0600)
 #include <wdf.h>
 #include <WdfMiniport.h>
-#endif 
+#endif /* (NDISVER >= 0x0600)  */
 
 #if defined(KEEP_ALIVE)
 /* Default KEEP_ALIVE Period is 55 sec to prevent AP from sending Keep Alive probe frame */
@@ -83,7 +65,7 @@ enum dhd_bus_state {
 	DHD_BUS_DATA		/* Ready for frame transfers */
 };
 
-#if 0 && (0>= 0x0600)
+//#if defined(NDISVER) && (NDISVER >= 0x0600)
 /* Firmware requested operation mode */
 #define STA_MASK			0x0001
 #define HOSTAPD_MASK		0x0002
@@ -92,7 +74,7 @@ enum dhd_bus_state {
 #define P2P_GO_ENABLED		0x0010
 #define P2P_GC_ENABLED		0x0020
 #define CONCURENT_MASK		0x00F0
-#endif 
+//#endif /* (NDISVER >= 0x0600)  */
 
 enum dhd_op_flags {
 /* Firmware requested operation mode */
@@ -113,10 +95,10 @@ enum dhd_op_flags {
 
 /* Max sequential TX/RX Control timeouts to set HANG event */
 #ifndef MAX_CNTL_TX_TIMEOUT
-#define MAX_CNTL_TX_TIMEOUT 5
+#define MAX_CNTL_TX_TIMEOUT 2
 #endif /* MAX_CNTL_TX_TIMEOUT */
 #ifndef MAX_CNTL_RX_TIMEOUT
-#define MAX_CNTL_RX_TIMEOUT 5
+#define MAX_CNTL_RX_TIMEOUT 10
 #endif /* MAX_CNTL_RX_TIMEOUT */
 
 #define DHD_SCAN_ASSOC_ACTIVE_TIME	40 /* ms: Embedded default Active setting from DHD */
@@ -300,6 +282,9 @@ typedef struct dhd_pub {
 	struct mutex 	wl_softap_lock;		 /* lock/unlock for any SoftAP/STA settings */
 #endif 
 
+#ifdef WLBTAMP
+	uint16	maxdatablks;
+#endif /* WLBTAMP */
 #ifdef PROP_TXSTATUS
 	int	wlfc_enabled;
 	void*	wlfc_state;
@@ -332,6 +317,13 @@ typedef struct dhd_pub {
 #endif
 	struct reorder_info *reorder_bufs[WLHOST_REORDERDATA_MAXFLOWS];
 	char  fw_capabilities[WLC_IOCTL_SMLEN];
+
+#ifdef DYNAMIC_DTIM_SKIP
+	ulong pre_rx_packets;
+	int   dynamic_dtim_skip;
+	int   dynamic_dtim_data_counter;
+#endif
+
 #ifdef RXFRAME_THREAD
 #define MAXSKBPEND 1024
 	void *skbbuf[MAXSKBPEND];
@@ -343,11 +335,12 @@ typedef struct dhd_pub {
 	tcp_ack_info_t tcp_ack_info_tbl[MAXTCPSTREAMS];
 #endif /* DHDTCPACK_SUPPRESS */
 	uint32 arp_version;
-#ifdef PKT_FILTER_SUPPORT
-	uint pkt_filter_mode;
-	uint pkt_filter_ports_count;
-	uint16 pkt_filter_ports[WL_PKT_FILTER_PORTS_MAX];
-#endif /* PKT_FILTER_SUPPORT */
+#if defined(BCMSUP_4WAY_HANDSHAKE) && defined(WLAN_AKM_SUITE_FT_8021X)
+	bool fw_4way_handshake;		/* Whether firmware will to do the 4way handshake. */
+#endif
+#ifdef BCM4334X_MCC_ENABLE
+	uint8 mchan_flowctrl;
+#endif /* BCM4334X_MCC_ENABLE */
 } dhd_pub_t;
 typedef struct dhd_cmn {
 	osl_t *osh;		/* OSL handle */
@@ -419,6 +412,7 @@ extern int dhd_os_wake_lock_rx_timeout_enable(dhd_pub_t *pub, int val);
 extern int dhd_os_wake_lock_ctrl_timeout_enable(dhd_pub_t *pub, int val);
 extern int dhd_os_wd_wake_lock(dhd_pub_t *pub);
 extern int dhd_os_wd_wake_unlock(dhd_pub_t *pub);
+extern int dhd_ap_wake_lock_timeout(dhd_pub_t *pub, int timeout);
 
 inline static void MUTEX_LOCK_SOFTAP_SET_INIT(dhd_pub_t * dhdp)
 {
@@ -460,6 +454,11 @@ inline static void MUTEX_UNLOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 void dhd_net_if_lock(struct net_device *dev);
 void dhd_net_if_unlock(struct net_device *dev);
 
+#if defined(MULTIPLE_SUPPLICANT)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25)) && 1 && 1
+extern struct mutex _dhd_sdio_mutex_lock_;
+#endif
+#endif /* MULTIPLE_SUPPLICANT */
 
 typedef struct dhd_if_event {
 	uint8 ifidx;
@@ -502,7 +501,7 @@ void dhd_osl_detach(osl_t *osh);
  * Returned structure should have bus and prot pointers filled in.
  * bus_hdrlen specifies required headroom for bus module header.
  */
-extern dhd_pub_t *dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen, void *dev);
+extern dhd_pub_t *dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen);
 #if defined(WLP2P) && defined(WL_CFG80211)
 /* To allow attach/detach calls corresponding to p2p0 interface  */
 extern int dhd_attach_p2p(dhd_pub_t *);
@@ -524,7 +523,9 @@ extern bool dhd_prec_enq(dhd_pub_t *dhdp, struct pktq *q, void *pkt, int prec);
 
 /* Receive frame for delivery to OS.  Callee disposes of rxp. */
 extern void dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *rxp, int numpkt, uint8 chan);
-
+#ifdef BCM4334X_MCC_ENABLE
+extern void dhd_mchan_ifctrl(dhd_pub_t *dhdp, uint8 mchan_ifctrl);
+#endif /* BCM4334X_MCC_ENABLE */
 /* Return pointer to interface name */
 extern char *dhd_ifname(dhd_pub_t *dhdp, int idx);
 
@@ -572,26 +573,26 @@ extern int dhd_keep_alive_onoff(dhd_pub_t *dhd);
 
 
 #ifdef PKT_FILTER_SUPPORT
+#if !defined(BLACKLIST_PKT_FILTER)
 #define DHD_UNICAST_FILTER_NUM		0
 #define DHD_BROADCAST_FILTER_NUM	1
 #define DHD_MULTICAST4_FILTER_NUM	2
 #define DHD_MULTICAST6_FILTER_NUM	3
 #define DHD_MDNS_FILTER_NUM		4
 #define DHD_ARP_FILTER_NUM		5
-
-/* Port based packet filtering command actions */
-#define PKT_FILTER_PORTS_CLEAR		0
-#define PKT_FILTER_PORTS_ADD		1
-#define PKT_FILTER_PORTS_DEL		2
-#define PKT_FILTER_PORTS_LOOPBACK	3
-#define PKT_FILTER_PORTS_MAX		PKT_FILTER_PORTS_LOOPBACK
-
-extern int dhd_os_enable_packet_filter(dhd_pub_t *dhdp, int val);
+#else
+#define DHD_UNICAST_FILTER_NUM		0
+#define DHD_BROADCAST_FILTER_NUM	1
+#define DHD_MULTICAST4_FILTER_NUM	2
+#define DHD_MULTICAST6_FILTER_NUM	3
+#define DHD_MDNS_FILTER_NUM		4
+#define DHD_ARP_FILTER_NUM		5
+#define DHD_NETBIOS_FILTER_NUM		6
+#endif
+extern int 	dhd_os_enable_packet_filter(dhd_pub_t *dhdp, int val);
 extern void dhd_enable_packet_filter(int value, dhd_pub_t *dhd);
 extern int net_os_enable_packet_filter(struct net_device *dev, int val);
 extern int net_os_rxfilter_add_remove(struct net_device *dev, int val, int num);
-extern void dhd_set_packet_filter_mode(struct net_device *dev, char *command);
-extern int dhd_set_packet_filter_ports(struct net_device *dev, char *command);
 #endif /* PKT_FILTER_SUPPORT */
 
 extern int dhd_get_suspend_bcn_li_dtim(dhd_pub_t *dhd);
@@ -780,7 +781,9 @@ extern uint dhd_force_tx_queueing;
 #endif
 
 #define DEFAULT_WIFI_TURNOFF_DELAY	0
+#ifndef WIFI_TURNOFF_DELAY
 #define WIFI_TURNOFF_DELAY		DEFAULT_WIFI_TURNOFF_DELAY
+#endif /* WIFI_TURNOFF_DELAY */
 
 #ifdef RXFRAME_THREAD
 #ifndef CUSTOM_RXF_PRIO_SETTING
