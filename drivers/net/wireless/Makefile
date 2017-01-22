@@ -59,9 +59,9 @@ obj-$(CONFIG_IWM)	+= iwmc3200wifi/
 
 obj-$(CONFIG_MWIFIEX)	+= mwifiex/
 
-obj-$(CONFIG_BCMDHD)	+= bcmdhd/
+obj-$(CONFIG_BCM43XX)	+= bcmdhd/
 
-obj-$(CONFIG_BCM43XX)   += bcm43xx/
+#obj-$(CONFIG_BCM43XX)   += bcm43xx/
 
 obj-$(CONFIG_BCM43241)	+= bcm43241/
 
